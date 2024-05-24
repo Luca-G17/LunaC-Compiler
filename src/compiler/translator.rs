@@ -108,49 +108,43 @@ enum MipsOperation<'a> {
     Pop(Pop<'a>)
 }
 
+#[derive(Clone)]
 struct Env<'a> {
-    mapping: HashMap<String, VariableMapping>,
-    functions: HashSet<FuncStmt<'a>>,
+    mapping: Box<HashMap<String, VariableMapping>>,
+    functions: Box<HashSet<&'a FuncStmt<'a>>>,
     frame_ptr: usize,
     frame_base_ptr: usize
 }
 
 impl<'a> Env<'a> {
-    fn add_var(&mut self, variable: VarStmt<'a>) -> String {
+    fn add_var(&mut self, variable: &'a VarStmt<'a>) {
         let var_count = self.mapping.len();
+        let var_name = variable.var_name.lexeme.clone();
+        if self.mapping.contains_key(&var_name) {
+            return;
+        }
         if var_count < (NUM_REGISTERS - 1) {
-            self.mapping.insert(variable.var_name.lexeme.clone(), VariableMapping::RegisterMapping(RegisterMapping {
+            self.mapping.insert(var_name, VariableMapping::RegisterMapping(RegisterMapping {
                 reg_no: var_count
             }));
         }
         else {
-            self.mapping.insert(variable.var_name.lexeme.clone(), VariableMapping::StackMapping(StackMapping { 
+            self.mapping.insert(var_name, VariableMapping::StackMapping(StackMapping { 
                 relative_addr: self.frame_ptr
             }));
             self.frame_ptr += 1;
         }
-
-        return String::from("");
     }
 
-    fn initialise_variable(&self, variable: VarStmt<'a>, mapping: VariableMapping) -> String {
+    fn get_variable_index(&self, var_name: String) -> Option<usize> {
+        let mapping = self.mapping.get(&var_name)?;
         match mapping {
-            VariableMapping::RegisterMapping(reg_mapping) => {
-                let reg_str = format!("move r{}", reg_mapping.reg_no);
-                let mut str = String::from("");
-                if let Some(init) = variable.initialiser {
-                    // str.push_str(&translate_ast(&init));
-                    return format!("{}", str);
-                }
-                else {
-                    return format!("{} 0", reg_str);
-                }
-            },
-            VariableMapping::StackMapping(stack_mapping) => todo!(),
+            VariableMapping::RegisterMapping(reg_map) => Some(reg_map.reg_no),
+            VariableMapping::StackMapping(stc_map) => Some(stc_map.relative_addr + NUM_REGISTERS),
         }
     }
 
-    fn add_function(&mut self, function: FuncStmt<'a>) {
+    fn add_function(&mut self, function: &'a FuncStmt<'a>) {
         self.functions.insert(function);
     }
 }
@@ -170,35 +164,47 @@ fn generate_singleton_tokens() -> HashMap<SingletonTokenType, Token> {
     ]);
 }
 
+fn variable_mapping_to_string(var: VariableMapping) -> String {
+    match var {
+        VariableMapping::RegisterMapping(m) => format!("r{}", m.reg_no),
+        VariableMapping::StackMapping(_) => todo!(),
+    }
+}
+
 fn operand_to_string(oper: MipsOperand) -> String {
     match oper {
-        MipsOperand::VariableMapping(_) => todo!(),
+        MipsOperand::VariableMapping(v) => { variable_mapping_to_string(v) },
         MipsOperand::Literal(l) => {
             match l.value {
-
+                Some(value) => value.lexeme.clone(),
+                None => panic!("Internal compiler error - literal does not contain value"),
             }
         },
     }
 }
 
-fn mips_binary_op_to_string(op_str: String, op_1: MipsOperand, op_2: MipsOperand) -> String {
-    return String::from("");
+fn mips_binary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand, op_2: MipsOperand) -> String {
+    format!("{} {} {} {}\n", op_str, variable_mapping_to_string(store), operand_to_string(op_1), operand_to_string(op_2))
 }
 
-fn mips_unary_op_to_string(op_str: String, op_1: MipsOperand) -> String {
+fn mips_unary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand) -> String {
+    format!("{} {} {}\n", op_str, variable_mapping_to_string(store), operand_to_string(op_1))
+}
+
+fn mips_unary_no_store_to_string(op_str: String, op_1: MipsOperand) -> String {
     return String::from("");
 }
 
 fn mips_operation_to_string(op: MipsOperation) -> String {
     match op {
-        MipsOperation::Add(o) => return mips_binary_op_to_string(String::from("add"), o.op_1, o.op_2),
-        MipsOperation::Sub(o) => return mips_binary_op_to_string(String::from("add"), o.op_1, o.op_2),
-        MipsOperation::Mul(o) => return mips_binary_op_to_string(String::from("add"), o.op_1, o.op_2),
-        MipsOperation::Div(o) => return mips_binary_op_to_string(String::from("add"), o.op_1, o.op_2),
-        MipsOperation::Push(o) => return mips_unary_op_to_string(String::from("push"), o.op_1),
-        MipsOperation::Peek(o) => return mips_unary_op_to_string(String::from("push"), o.op_1),
-        MipsOperation::Pop(o) => return mips_unary_op_to_string(String::from("push"), o.op_1),
-        MipsOperation::Move(o) => return mips_unary_op_to_string(String::from("push"), o.op_1),
+        MipsOperation::Add(o) => return mips_binary_op_to_string(String::from("add"), o.store, o.op_1, o.op_2),
+        MipsOperation::Sub(o) => return mips_binary_op_to_string(String::from("sub"), o.store, o.op_1, o.op_2),
+        MipsOperation::Mul(o) => return mips_binary_op_to_string(String::from("mul"), o.store, o.op_1, o.op_2),
+        MipsOperation::Div(o) => return mips_binary_op_to_string(String::from("div"), o.store, o.op_1, o.op_2),
+        MipsOperation::Push(o) => return mips_unary_no_store_to_string(String::from("push"), o.op_1),
+        MipsOperation::Peek(o) => return mips_unary_no_store_to_string(String::from("peek"), o.op_1),
+        MipsOperation::Pop(o) => return mips_unary_no_store_to_string(String::from("pop"), o.op_1),
+        MipsOperation::Move(o) => return mips_unary_op_to_string(String::from("move"), o.store, o.op_1),
     }
 }
 
@@ -249,21 +255,23 @@ fn mips_unary_operation<'a>(operator: &'a Token, var_ptr: usize, operand: MipsOp
     A grouping operation will always require a tmp register and therefore a var_ptr
     increment.
 */
-fn translate_ast<'a>(ast: &'a Expr<'a>, env: &'a Env<'a>, var_ptr: usize, singleton_tokens: &'a HashMap<SingletonTokenType, Token>) -> Result<(Vec<MipsOperation<'a>>, usize), Error> {
+fn translate_ast<'a>(ast: &'a Expr<'a>, env: Env<'a>, var_ptr: usize, singleton_tokens: &'a HashMap<SingletonTokenType, Token>) -> Result<(Vec<MipsOperation<'a>>, usize), Error> {
     match ast {
         Expr::Binary(e) => {
             let mut var_ptr = var_ptr;
 
             let mut ops = Vec::new();
-            let left_opt = get_atomic_operand(&e.left, env);
-            let right_opt = get_atomic_operand(&e.right, env);
+            let left_opt = get_atomic_operand(&e.left, &env);
+            let right_opt = get_atomic_operand(&e.right, &env);
 
             let left_operand;
             let right_operand;
+            let mut left_store_ptr = var_ptr;
             if let Some(left) = left_opt { left_operand = left?; }
             else {
                 let left_translation ;
-                (left_translation, var_ptr) = translate_ast(&e.left, env, var_ptr, singleton_tokens)?;
+                (left_translation, var_ptr) = translate_ast(&e.left, env.clone(), var_ptr, singleton_tokens)?;
+                left_store_ptr = var_ptr;
                 ops = [ops, left_translation].concat();
                 left_operand = MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }));
             }
@@ -271,23 +279,23 @@ fn translate_ast<'a>(ast: &'a Expr<'a>, env: &'a Env<'a>, var_ptr: usize, single
             if let Some(right) = right_opt { right_operand = right?; }
             else {
                 let right_translation;
-                (right_translation, var_ptr) = translate_ast(&e.right, env, var_ptr, singleton_tokens)?;
+                (right_translation, var_ptr) = translate_ast(&e.right, env.clone(), var_ptr, singleton_tokens)?;
                 ops = [ops, right_translation].concat();
                 right_operand = MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }));
             }
 
-            ops.push(mips_binary_operation(e.operator, var_ptr, left_operand, right_operand));
+            ops.push(mips_binary_operation(e.operator, left_store_ptr, left_operand, right_operand));
             return Ok((ops, var_ptr));
         },
         Expr::Unary(e) => {
             let mut var_ptr = var_ptr;
             let mut ops = Vec::new();
-            let oper_opt = get_atomic_operand(&e.right, env);
+            let oper_opt = get_atomic_operand(&e.right, &env);
             let operand;
             if let Some(atomic_opt) = oper_opt { operand = atomic_opt?; }
             else {
                 let translation;
-                (translation, var_ptr) = translate_ast(&e.right, env, var_ptr, singleton_tokens)?;
+                (translation, var_ptr) = translate_ast(&e.right, env.clone(), var_ptr, singleton_tokens)?;
                 ops = translation;
                 operand = MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }));
             }
@@ -295,21 +303,29 @@ fn translate_ast<'a>(ast: &'a Expr<'a>, env: &'a Env<'a>, var_ptr: usize, single
             ops.push(mips_unary_operation(e.operator, var_ptr, operand, singleton_tokens));
             return Ok((ops, var_ptr));
         },
-        Expr::Literal(_) => todo!(),
-        Expr::Call(_) => todo!(),
-        Expr::Grouping(_) => todo!(),
-        Expr::Logical(_) => todo!(),
+        Expr::Literal(e)  => {
+            let store = VariableMapping::RegisterMapping(RegisterMapping { reg_no: 0 });
+            let value = MipsOperand::Literal(e.clone());
+            return Ok((Vec::from([
+                MipsOperation::Move(Move {
+                    store,
+                    op_1: value  
+                })
+            ]), var_ptr));
+        }
         Expr::Variable(_) => todo!(),
+        Expr::Call(_) => todo!(),
+        Expr::Grouping(e) => translate_ast(&e.expression, env, var_ptr + 1, singleton_tokens),
+        Expr::Logical(_) => todo!(),
         Expr::Null(_) => todo!(),
     }
 }
-
 
 // TODO: Result<Option<>> is extremely stinky - option determines wether the operand is atomic,
 // result determines wether the atomic operand exists in the current environment
 
 // This method also has a bunch of cloning - It's pretty stinky all round but I can't be bothered to fix it right now...
-fn get_atomic_operand<'a>(expr: &'a Expr<'a>, env: &'a Env) -> Option<Result<MipsOperand<'a>, Error>> {
+fn get_atomic_operand<'a>(expr: &'a Expr<'a>, env: &Env) -> Option<Result<MipsOperand<'a>, Error>> {
     match expr {
         Expr::Literal(lit) => {
             return Some(Ok(MipsOperand::Literal(lit.clone())))
@@ -328,19 +344,33 @@ fn get_atomic_operand<'a>(expr: &'a Expr<'a>, env: &'a Env) -> Option<Result<Mip
     }
 } 
 
-fn translate(stmt: &Stmt, env: Vec<VarStmt>) -> String {
+fn translate<'a>(stmt: &'a Stmt<'a>, mut env: Env<'a>, singleton_tokens: &'a HashMap<SingletonTokenType, Token>) -> Result<(Vec<MipsOperation<'a>>, Env<'a>), Error> {
     match stmt {
-        Stmt::Block(s) => {
-
-            let mut env: Vec<VarStmt> = Vec::new();
-            let mut str = String::from("");
-            return str;
-        },
+        Stmt::Block(s) => todo!(),
         Stmt::Expression(s) => todo!(),
         Stmt::Function(_) => todo!(),
         Stmt::If(_) => todo!(),
         Stmt::Return(_) => todo!(),
-        Stmt::Variable(_) => todo!(),
+        Stmt::Variable(var) => {
+            env.add_var(var);
+            let var_name = var.var_name.lexeme.clone();
+            let mut var_ops = Vec::new();
+            match &var.initialiser {
+                Some(init) => {
+                    let var_index;
+                    match env.get_variable_index(var_name) {
+                        Some(i) => var_index = i,
+                        None => return Err(Error),
+                    }
+                    let (init_ops, _) = translate_ast(&init, env.clone(), var_index, singleton_tokens)?;
+                    var_ops = [var_ops, init_ops].concat();
+                }
+                None => {
+                    todo!()
+                }
+            }
+            return Ok((var_ops, env.clone()));
+        },
         Stmt::While(_) => todo!(),
         Stmt::For(_) => todo!(),
         Stmt::Assign(_) => todo!(),
@@ -357,18 +387,19 @@ fn translating_error(token: &Token, message: String) {
     }
 }
 
-pub fn translate_statements(statements: Vec<Stmt>) {
+pub fn translate_statements(statements: Vec<Stmt>) -> String {
     let singleton_tokens = generate_singleton_tokens();
 
     // Construct global environment
     let mut base_env = Env {
-        mapping: HashMap::new(),
-        functions: HashSet::new(),
+        mapping: Box::new(HashMap::new()),
+        functions: Box::new(HashSet::new()),
         frame_ptr: 0,
         frame_base_ptr: 0
     };
 
-    for stmt in statements {
+    
+    for stmt in &statements {
         if let Stmt::Function(s) = stmt {
             base_env.add_function(s);
         }
@@ -376,4 +407,17 @@ pub fn translate_statements(statements: Vec<Stmt>) {
             base_env.add_var(s);
         }
     }
+    
+    let mut mips = Vec::new();
+    for stmt in &statements {
+        if let Ok((ops, _)) = translate(&stmt, base_env.clone(), &singleton_tokens) {
+            mips = [mips, ops].concat();
+        }
+    }
+
+    let mut ops_str = String::new();
+    for op in mips {
+        ops_str.push_str(&mips_operation_to_string(op));
+    }
+    return ops_str;
 }

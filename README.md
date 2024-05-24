@@ -39,6 +39,21 @@ add r2 1 3
 div r1 r1 r2
 add r0 r0 r1
 ```
+**Variable Example**  
+**LunaC:**
+```c
+int a = 5;
+int x = (1 + a) + ((2 + a) / (a + 3));
+```
+**MIPS**
+```
+move r0 5
+add r1 1 r0
+add r2 2 r0
+add r3 r0 3
+div r2 r2 r3
+add r1 r1 r2
+```
 Additionally, once we exceed 15 registers used, we must switch to stack variables which require 2 operations per read/write.
 
 #### Stack Variables:  
