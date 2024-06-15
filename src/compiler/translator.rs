@@ -143,7 +143,7 @@ enum MipsOperation {
 #[derive(Clone)]
 struct Env<'a> {
     mapping: Box<HashMap<String, VariableMapping>>,
-    functions: Box<HashMap<String, &'a FuncStmt<'a>>>,
+    functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>,
     frame_ptr: usize,
     var_count: usize,
     frame_base_ptr: usize,
@@ -153,7 +153,7 @@ struct Env<'a> {
 }
 
 impl<'a> Env<'a> {
-    fn new(mapping: Box<HashMap<String, VariableMapping>>, functions: Box<HashMap<String, &'a FuncStmt<'a>>>, frame_ptr: usize, var_count: usize, frame_base_ptr: usize, parent: Option<Rc<RefCell<Env<'a>>>>, function_block: bool) -> Rc<RefCell<Env<'a>>> {
+    fn new(mapping: Box<HashMap<String, VariableMapping>>, functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>, frame_ptr: usize, var_count: usize, frame_base_ptr: usize, parent: Option<Rc<RefCell<Env<'a>>>>, function_block: bool) -> Rc<RefCell<Env<'a>>> {
         return Rc::new(RefCell::new(Env {
             mapping,
             functions,
@@ -218,21 +218,16 @@ impl<'a> Env<'a> {
     }
 
     fn add_function(&mut self, function: &'a FuncStmt<'a>) -> Result<(), Error> {
-        if self.functions.contains_key(&function.name.lexeme) {
+        if self.functions.borrow().contains_key(&function.name.lexeme) {
             translating_error(&function.name, format!("Found two definitions for function: {}", function.name.lexeme));
             return Err(Error);
         }
-        self.functions.insert(function.name.lexeme.clone(), function);
+        self.functions.borrow_mut().insert(function.name.lexeme.clone(), function);
         Ok(())
     }
 
     fn get_function<'b>(&'b self, func_call: &'b Token) -> Option<&'b FuncStmt> {
-        if let Some(p) = &self.parent {
-            let call = p.borrow().get_function(func_call);
-            return call;
-        }
-
-        match self.functions.get(&func_call.lexeme) {
+        match self.functions.borrow().get(&func_call.lexeme) {
             Some(func_stmt) => return Some(*func_stmt),
             None => {
                 translating_error(&func_call, format!("No definition for function found: {}", func_call.lexeme));
@@ -558,7 +553,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER) }));
             let func_env = Env::new(
                 Box::new(HashMap::new()),
-                Box::new(HashMap::new()),
+                env.borrow().functions.clone(),
                 0,
                 env.borrow().var_count,
                 env.borrow().var_count,
@@ -643,7 +638,7 @@ pub fn translate_statements(statements: Vec<Stmt>) -> String {
     // Construct global environment
     let global_env = Env::new(
         Box::new(HashMap::new()), 
-        Box::new(HashMap::new()), 
+        Rc::new(HashMap::new().into()), 
         0, 
         0,
         0,
