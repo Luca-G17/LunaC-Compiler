@@ -11,7 +11,7 @@ mod tests;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let mut filename = &String::from("test_var_translation.c");
+    let mut filename = &String::from("test.c");
     if args.len() != 1 {
         filename = &args[1];
     }

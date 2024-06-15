@@ -23,8 +23,20 @@
 2. Start translation from main()
 3. If a function call is encountered - generate its associated declaration if it doesn't already exist
 
+#### Memory Layout:
+- 16x general purpose registers (64 bit)
+- 1x stack pointer register
+- 1x return address register
+
+Since we don't have access to an addressable memory space we must treat the stack as 
+  
+| Register # | Usage |
+|------------|-------|
+| 0 | Return values are stored in this register. |
+| 1 | Frame pointer register. |
+| 2..15 | Scratch registers. |
 #### Expression Translation:  
-Recursively parse expression until we reach a binary/unary operation we can translate - store immediate intermediary results in the target register. If we encounter a grouping intermediate results must be stored in the tmp register. Every grouping will require it's own intermediate register. Since we only have 16 registers to work with this highlights the importance of implementing compile time evaluation.
+Recursively parse expression until we reach a binary/unary operation we can translate - store immediate intermediary results in the target register. If we encounter a grouping intermediate results must be stored in the tmp register.
 
 **Literal Example**  
 **LunaC:**

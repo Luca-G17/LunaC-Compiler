@@ -125,23 +125,6 @@ pub enum Stmt<'a> {
     FunctionCall(FuncCallStmt<'a>)
 }
 
-fn expr_evaluation(expr: Box<Expr>) -> Option<Expr> {
-    match *expr {
-        Expr::Binary(_) => todo!(),
-        Expr::Call(_) => todo!(),
-        Expr::Grouping(_) => todo!(),
-        Expr::Literal(_) => todo!(),
-        Expr::Logical(_) => todo!(),
-        Expr::Unary(_) => todo!(),
-        Expr::Variable(_) => todo!(),
-        Expr::Null(_) => todo!(),
-    }
-}
-
-pub fn attempt_expr_evaluation(expr: Box<Expr>) -> Option<LiteralExpr> {
-    todo!()
-}
-
 pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
     match stmt {
         Stmt::Function(s) => {
@@ -242,7 +225,17 @@ pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
         },
         Stmt::Assign(s) => String::from(format!("{} = {};\n", s.var_name.lexeme, ast_pretty_printer(s.binding.clone()))),
         Stmt::Return(s) => String::from(format!("return {};\n", ast_pretty_printer(s.value.clone()))),
-        Stmt::FunctionCall(_) => todo!(),
+        Stmt::FunctionCall(s) => {
+            let mut str = format!("{}(", s.name.lexeme);
+            for (i, expr) in s.params.iter().enumerate() {
+                str.push_str(&ast_pretty_printer(Box::new(expr.clone())));
+                if i != s.params.len() - 1 {
+                    str.push_str(", ");
+                }
+            } 
+            str.push_str(");\n");
+            return str;
+        }
     }
 }
 
@@ -269,7 +262,10 @@ fn parenthesize_expr(expr: Box<Expr>) -> String {
         },
         Expr::Unary(e) => parenthesize(e.operator.lexeme.clone(), Vec::from([e.right])),
         Expr::Variable(e) => parenthesize(e.name.lexeme.clone(), Vec::from([])),
-        Expr::Call(_) => String::from(""),
+        Expr::Call(e) => {
+            let call_stmt = Stmt::FunctionCall(e.call.clone());
+            pretty_print_stmt(&call_stmt, 0) 
+        },
         Expr::Logical(_) => String::from(""),
         Expr::Null(_) => String::from("")
     }
@@ -327,6 +323,7 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<Stmt> {
         match stmt_res {
             Ok((stmt, c)) => {
                 current = c;
+                println!("{}", pretty_print_stmt(&stmt, 0));
                 statements.push(stmt);
             }
             Err(_) => panic!("Internal compiler error.")
@@ -508,7 +505,7 @@ fn if_statement(current: usize, tokens: &Vec<Token>) -> Result<(Stmt, usize), Pa
     }), current));
 }
 
-fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifier: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifier: &'a Token, inline: bool) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
     let mut params: Vec<Expr> = Vec::new();
     while !match_token(&mut current, tokens, &Vec::from([TokenType::RightParen])) {
@@ -528,6 +525,10 @@ fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifie
             parsing_error(delim_tok, String::from("Expected ')'."));
             return Err(ParserError);
         }
+    }
+
+    if !inline {
+        (_, current) = consume_token(TokenType::Semicolon, String::from("Expect ';' after function call."), current, tokens);
     }
 
     return Ok((Stmt::FunctionCall(FuncCallStmt {
@@ -559,7 +560,7 @@ fn generate_statement(current: usize, tokens: &Vec<Token>, inline_statement: boo
                 return Err(ParserError);
             }
         }
-        else if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) { return function_call_statement(current, tokens, identifier); }
+        else if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) { return function_call_statement(current, tokens, identifier, false); }
     }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::Return])) {
         if let Ok((binding, current)) = expression_statement(current, tokens) {
@@ -571,6 +572,7 @@ fn generate_statement(current: usize, tokens: &Vec<Token>, inline_statement: boo
         }
     }
 
+    println!("{}", peek(current, tokens).lexeme);
     return Err(ParserError);
 }
 
@@ -760,7 +762,7 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
         let identifier = previous(current, tokens);
         if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
             // Function call in expression
-            let (stmt, current) = function_call_statement(current, tokens, identifier)?;
+            let (stmt, current) = function_call_statement(current, tokens, identifier, true)?;
             if let Stmt::FunctionCall(call) = stmt {
                 return Ok((Box::new(Expr::Call(CallExpr {
                     call
