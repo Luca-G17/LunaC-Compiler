@@ -89,7 +89,7 @@ impl Scanner {
                 self.add_token(tok_type, c.to_string());
             },
             '|' => { 
-                let tok_type = if self.match_char('&') { TokenType::Or } else { TokenType::BitwiseOr };
+                let tok_type = if self.match_char('|') { TokenType::Or } else { TokenType::BitwiseOr };
                 self.add_token(tok_type, c.to_string());
             },
             '!' => { 

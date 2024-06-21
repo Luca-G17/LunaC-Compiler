@@ -5,12 +5,11 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::error_handler::report;
-use super::parser::{FuncCallStmt, FuncStmt, LiteralExpr, VarStmt, VariableExpr};
+use super::parser::{FuncCallStmt, FuncStmt, VariableExpr};
 use super::{parser::{Stmt, Expr}, scanner::{Token, TokenType}};
 
 const NUM_REGISTERS: usize = 16;
 const STACK_BASE_REGISTER: usize = 0;
-const RETURN_REGISTER: usize = 1;
 
 
 impl<'a> Hash for FuncStmt<'a> {
@@ -42,7 +41,14 @@ struct StackMapping {
 enum VariableMapping {
     RegisterMapping(RegisterMapping),
     StackMapping(StackMapping),
-    StackPointer
+    StackPointer,
+    ReturnAddress
+}
+
+impl VariableMapping {
+    fn from_register_number(reg_no: usize) -> Self {
+        return VariableMapping::RegisterMapping(RegisterMapping { reg_no })
+    } 
 }
 
 #[derive(Clone)]
@@ -95,12 +101,12 @@ struct Pop {
 }
 
 #[derive(Clone)]
-struct Label<> {
+struct Label {
     label_name: String
 }
 
 #[derive(Clone)]
-struct Jump<> {
+struct JumpAndSave {
     label_name: String
 }
 
@@ -108,6 +114,91 @@ struct Jump<> {
 struct JumpReg {
     reg: MipsOperand
 }
+
+#[derive(Clone)]
+struct And {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Or {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Not {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Xor {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Seq {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Sgt {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Sge {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Slt {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Sle {
+    store: VariableMapping,
+    op_1: MipsOperand,
+    op_2: MipsOperand
+}
+
+#[derive(Clone)]
+struct Bne {
+    op_1: MipsOperand,
+    op_2: MipsOperand,
+    dest: MipsOperand
+}
+
+#[derive(Clone)]
+struct Beq {
+    op_1: MipsOperand,
+    op_2: MipsOperand,
+    dest: MipsOperand
+}
+
+#[derive(Clone)]
+struct Jump {
+    label_name: String
+}
+
+#[derive(Clone)]
+struct Return {}
 
 #[derive(Clone)]
 enum MipsOperand {
@@ -132,12 +223,25 @@ enum MipsOperation {
     Sub(Sub),
     Mul(Mul),
     Div(Div),
+    And(And),
+    Or(Or),
+    Not(Not),
+    Xor(Xor),
+    Beq(Beq),
+    Bne(Bne),
+    Seq(Seq),
+    Sgt(Sgt),
+    Sge(Sge),
+    Slt(Slt),
+    Sle(Sle),
     Push(Push),
     Peek(Peek),
     Pop(Pop),
     Label(Label),
+    JumpAndSave(JumpAndSave),
+    JumpReg(JumpReg),
     Jump(Jump),
-    JumpReg(JumpReg)
+    Return(Return)
 }
 
 #[derive(Clone)]
@@ -146,23 +250,21 @@ struct Env<'a> {
     functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>,
     frame_ptr: usize,
     var_count: usize,
-    frame_base_ptr: usize,
     reg_ptr: usize,
+    label_ptr: usize,
     parent: Option<Rc<RefCell<Env<'a>>>>,
-    function_block: bool
 }
 
 impl<'a> Env<'a> {
-    fn new(mapping: Box<HashMap<String, VariableMapping>>, functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>, frame_ptr: usize, var_count: usize, frame_base_ptr: usize, parent: Option<Rc<RefCell<Env<'a>>>>, function_block: bool) -> Rc<RefCell<Env<'a>>> {
+    fn new(mapping: Box<HashMap<String, VariableMapping>>, functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>, frame_ptr: usize, var_count: usize, parent: Option<Rc<RefCell<Env<'a>>>>) -> Rc<RefCell<Env<'a>>> {
         return Rc::new(RefCell::new(Env {
             mapping,
             functions,
             frame_ptr,
             var_count,
-            frame_base_ptr,
             parent,
+            label_ptr: 0,
             reg_ptr: 6,
-            function_block
         }));
     }
 
@@ -178,12 +280,22 @@ impl<'a> Env<'a> {
         self.var_count += 1;
     }
 
-    fn set_reg_ptr(&mut self, value: usize) {
+    fn add_label(&mut self) -> usize {
         if let Some(parent) = &self.parent {
-            parent.borrow_mut().set_reg_ptr(value);
+            return parent.borrow_mut().add_label();
         }
         else {
-            self.reg_ptr = value;
+            self.label_ptr += 1;
+            return self.label_ptr - 1;
+        }
+    }
+
+    fn get_label_ptr(&self) -> usize {
+        if let Some(parent) = &self.parent {
+            return parent.borrow().get_label_ptr();
+        }
+        else {
+            return self.label_ptr;
         }
     }
 
@@ -201,7 +313,7 @@ impl<'a> Env<'a> {
         match mapping {
             VariableMapping::RegisterMapping(reg_map) => Some(reg_map.reg_no),
             VariableMapping::StackMapping(stc_map) => Some(stc_map.relative_addr),
-            VariableMapping::StackPointer => None
+            VariableMapping::StackPointer | VariableMapping::ReturnAddress => None,
         }
     }
 
@@ -237,64 +349,52 @@ impl<'a> Env<'a> {
     }
 }
 
-fn variable_mapping_to_string(var: VariableMapping, first: bool) -> (String, bool) {
+fn variable_mapping_to_string(var: VariableMapping) -> String {
     match var {
-        VariableMapping::RegisterMapping(m) => (format!("r{}", m.reg_no), false),
-        VariableMapping::StackMapping(m) => {
-            todo!()
-        }
-        VariableMapping::StackPointer => (String::from("sp"), false)
+        VariableMapping::RegisterMapping(m) => format!("r{}", m.reg_no),
+        VariableMapping::StackMapping(_) => panic!("Internal Compiler Error - Stack mapping failed to be pre-translated"),
+        VariableMapping::StackPointer => String::from("sp"),
+        VariableMapping::ReturnAddress => String::from("ra")
     }
 }
 
-fn operand_to_string(oper: MipsOperand, first: bool) -> (String, bool) {
+fn operand_to_string(oper: MipsOperand) -> String {
     match oper {
-        MipsOperand::VariableMapping(v) => { variable_mapping_to_string(v, first) },
-        MipsOperand::Literal(l) => (l, false)
+        MipsOperand::VariableMapping(v) => variable_mapping_to_string(v),
+        MipsOperand::Literal(l) => l
     }
 }
 
 fn mips_binary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand, op_2: MipsOperand) -> String {
     let mut str = String::from("");
-
-    let (store_str, _) = variable_mapping_to_string(store, true);
-    let (mut op_1, stack) = operand_to_string(op_1, true);
-    if stack {
-        str.push_str(&op_1);
-        op_1 = String::from("r14");
-    }
-
-    let (mut op_2, stack) = operand_to_string(op_2, false);
-    if stack {
-        str.push_str(&op_2);
-        op_2 = String::from("r15");
-    }
+    let store_str= variable_mapping_to_string(store);
+    let op_1 = operand_to_string(op_1);
+    let op_2 = operand_to_string(op_2);
     str.push_str(&format!("{} {} {} {}\n", op_str, store_str, op_1, op_2));
     return str;
 }
 
 fn mips_unary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand) -> String {
     let mut str = String::from("");
-
-    let (store_str, _) = variable_mapping_to_string(store, true);
-    let (mut op_1, stack) = operand_to_string(op_1, true);
-    if stack {
-        str.push_str(&op_1);
-        op_1 = String::from("r15");
-    }
-
+    let store_str= variable_mapping_to_string(store);
+    let op_1 = operand_to_string(op_1);
     str.push_str(&format!("{} {} {}\n", op_str, store_str, op_1));
     return str;
 }
 
 fn mips_unary_no_store_to_string(op_str: String, op_1: MipsOperand) -> String {
     let mut str = String::from("");
-    let (mut op_1, stack) = operand_to_string(op_1, true);
-    if stack {
-        str.push_str(&op_1);
-        op_1 = String::from("r15");
-    }
+    let op_1 = operand_to_string(op_1);
     str.push_str(&format!("{} {}\n", op_str, op_1));
+    return str;
+}
+
+fn mips_binary_branch_to_string(branch_op_str: String, op_1: MipsOperand, op_2: MipsOperand, dest: MipsOperand) -> String {
+    let mut str = String::from("");
+    let op_1 = operand_to_string(op_1);
+    let op_2 = operand_to_string(op_2);
+    let dest = operand_to_string(dest);
+    str.push_str(&format!("{} {} {} {}\n", branch_op_str, op_1, op_2, dest));
     return str;
 }
 
@@ -309,33 +409,39 @@ fn mips_operation_to_string(op: MipsOperation) -> String {
         MipsOperation::Pop(o) => mips_unary_no_store_to_string(String::from("pop"), o.op_1),
         MipsOperation::Move(o) => mips_unary_op_to_string(String::from("move"), o.store, o.op_1),
         MipsOperation::Label(o) => format!("{}:\n", o.label_name),
-        MipsOperation::Jump(o) => format!("jal {}\n", o.label_name),
-        MipsOperation::JumpReg(o) => mips_unary_no_store_to_string(String::from("j"), o.reg)
+        MipsOperation::JumpAndSave(o) => format!("jal {}\n", o.label_name),
+        MipsOperation::JumpReg(o) => mips_unary_no_store_to_string(String::from("j"), o.reg),
+        MipsOperation::Jump(o) => format!("j {}\n", o.label_name),
+        MipsOperation::And(o) => mips_binary_op_to_string(String::from("and"), o.store, o.op_1, o.op_2),
+        MipsOperation::Or(o) => mips_binary_op_to_string(String::from("or"), o.store, o.op_1, o.op_2),
+        MipsOperation::Not(o) => mips_binary_op_to_string(String::from("not"), o.store, o.op_1, o.op_2),
+        MipsOperation::Xor(o) => mips_binary_op_to_string(String::from("xor"), o.store, o.op_1, o.op_2),
+        MipsOperation::Bne(o) => mips_binary_branch_to_string(String::from("bne"), o.op_1, o.op_2, o.dest),
+        MipsOperation::Beq(o) => mips_binary_branch_to_string(String::from("beq"), o.op_1, o.op_2, o.dest),
+        MipsOperation::Seq(o) => mips_binary_op_to_string(String::from("seq"), o.store, o.op_1, o.op_2),
+        MipsOperation::Sgt(o) => mips_binary_op_to_string(String::from("sgt"), o.store, o.op_1, o.op_2),
+        MipsOperation::Sge(o) => mips_binary_op_to_string(String::from("sge"), o.store, o.op_1, o.op_2),
+        MipsOperation::Slt(o) => mips_binary_op_to_string(String::from("slt"), o.store, o.op_1, o.op_2),
+        MipsOperation::Sle(o) => mips_binary_op_to_string(String::from("sle"), o.store, o.op_1, o.op_2),
+        MipsOperation::Return(_) => String::from("j ra\n")
     }
 }
 
 fn mips_binary_operation(operator: &Token, var_ptr: usize, op_1: MipsOperand, op_2: MipsOperand) -> MipsOperation {
     match operator.tok_type {
-        TokenType::Plus => MipsOperation::Add(Add {
-            store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }),
-            op_1,
-            op_2,
-        }),
-        TokenType::Minus => MipsOperation::Sub(Sub {
-            store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }),
-            op_1,
-            op_2,
-        }),
-        TokenType::Star => MipsOperation::Mul(Mul {
-            store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }),
-            op_1,
-            op_2,
-        }),
-        TokenType::Slash => MipsOperation::Div(Div {
-            store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }),
-            op_1,
-            op_2,
-        }),
+        TokenType::Plus => MipsOperation::Add(Add { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Minus => MipsOperation::Sub(Sub { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Star => MipsOperation::Mul(Mul { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Slash => MipsOperation::Div(Div { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::And | TokenType::BitwiseAnd => MipsOperation::And(And {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Or | TokenType::BitwiseOr => MipsOperation::Or(Or {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Bang => MipsOperation::Not(Not {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::BitwiseXor => MipsOperation::And(And {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::EqualEqual => MipsOperation::Seq(Seq { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Greater => MipsOperation::Sgt(Sgt { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::GreaterEqual => MipsOperation::Sge(Sge { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::Less => MipsOperation::Slt(Slt { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::LessEqual => MipsOperation::Sle(Sle { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
         _ => panic!("Internal compiler error - not a binary operation")
     }
 }
@@ -382,6 +488,18 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                 left_operand = MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr }));
             }
 
+            // If the operator is a logical or: 
+            // after lhs translation jump if lhs == 1
+            let mut dest_label = 0;
+            if e.operator.tok_type == TokenType::Or {
+                dest_label = env.borrow_mut().add_label();
+                ops.push(MipsOperation::Beq(Beq { 
+                    op_1: MipsOperand::from_register_number(var_ptr), 
+                    op_2: MipsOperand::from_string_literal(String::from("1")), 
+                    dest: MipsOperand::from_string_literal(format!("%{}", dest_label - 1))
+                }));
+            }
+
             let right_opt = get_atomic_operand(&e.right, env.clone(), var_ptr);
             let right_operand;
             if let Some(right) = right_opt { 
@@ -397,6 +515,10 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
             }
 
             ops.push(mips_binary_operation(e.operator, left_store_ptr, left_operand, right_operand));
+            
+            if e.operator.tok_type == TokenType::Or {
+                ops.push(MipsOperation::Label(Label { label_name: format!("%{}", dest_label - 1) }));
+            }
             return Ok((ops, var_ptr));
         },
         Expr::Unary(e) => {
@@ -420,11 +542,11 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
             return Ok((ops, var_ptr));
         },
         Expr::Literal(e)  => {
-            let store = VariableMapping::RegisterMapping(RegisterMapping { reg_no: env.borrow().get_reg_ptr() });
+            let store = VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr });
             let val_str;
             match e.value {
                 Some(v) => val_str = v.lexeme.clone(),
-                None => return  Err(Error)
+                None => val_str = String::from("1")
             }
             let value = MipsOperand::Literal(val_str);
             return Ok((Vec::from([
@@ -440,13 +562,34 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
         },
         Expr::Call(call) => {
             // Call inside of expression
-            let env_copy = env.clone();
-            let ops = translate_function_call(&call.call, env_copy)?;
+            // e.g. int x = foo(x, y) + bar(y);
+            // Push intermediate results onto the stack
+            let mut ops = Vec::new();
+            let reg_ptr = env.borrow().get_reg_ptr();
+            for i in reg_ptr..var_ptr {
+                let stack_addr = env.borrow().frame_ptr + (i - reg_ptr);
+                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0), op_2: MipsOperand::from_string_literal(format!("{}", stack_addr + 1)) }));
+                ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(i)}));
+            }
+            ops.extend(translate_function_call(&call.call, env.clone(), env.borrow().frame_ptr + (var_ptr - reg_ptr))?);
+             
+            for i in reg_ptr..var_ptr {
+                // Add one to the reg ptr because r6 contains the returned value
+                let stack_addr = env.borrow().frame_ptr + (i - reg_ptr);
+                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0), op_2: MipsOperand::from_string_literal(format!("{}", stack_addr + 2)) }));
+                ops.push(MipsOperation::Peek(Peek { op_1: MipsOperand::from_register_number(i + 1)}));
+            }
             return Ok((ops, var_ptr))
         },
-        Expr::Grouping(e) => translate_ast(&e.expression, env, var_ptr),
+        Expr::Grouping(e) => translate_ast(&e.expression, env.clone(), var_ptr),
         Expr::Logical(_) => todo!(),
-        Expr::Null(_) => todo!(),
+        Expr::StoredValueExpr(sto) => return Ok((
+            Vec::from([MipsOperation::Move(Move {
+                store: VariableMapping::from_register_number(var_ptr),
+                op_1: MipsOperand::Literal(format!("{}", sto.value))
+            })]),
+            var_ptr
+        )),
     }
 }
 
@@ -462,11 +605,11 @@ fn variable_expr_to_mips_access<'a>(var: &VariableExpr, env: Rc<RefCell<Env<'a>>
                 let mut ops = Vec::new();
                 let tmp_store_reg = MipsOperand::from_register_number(local_reg_ptr);
                 local_reg_ptr += 1;
-                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + 1)) }));
+                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + 2)) }));
                 ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
                 return Ok((tmp_store_reg, ops, local_reg_ptr));
             },
-            VariableMapping::StackPointer => todo!(),
+            VariableMapping::StackPointer | VariableMapping::ReturnAddress => todo!(),
         }
     }
     translating_error(var.name, String::from("Variable does not exist in scope."));
@@ -499,7 +642,7 @@ fn write_to_stack(var_name: String, env: Rc<RefCell<Env>>, result_reg: usize) ->
     panic!("Internal Compiler Error - Cannot find variable in the environment mappings")
 }
 
-fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsOperation>, Error> {
+fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env<'a>>>, frame_size: usize) -> Result<Vec<MipsOperation>, Error> {
     // Copy parameter expressions to memory mappings
     let mut ops = Vec::new();
     
@@ -526,13 +669,18 @@ fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env
         }
     }
 
+    // Add number of variables in the current stack frame to the base pointer
     ops.push(MipsOperation::Add(Add { 
         store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: STACK_BASE_REGISTER }),
         op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER),
-        op_2: MipsOperand::from_string_literal(format!("{}", env.borrow().frame_ptr))
+        op_2: MipsOperand::from_string_literal(format!("{}", frame_size + 1))
     }));
-
-    ops.push(MipsOperation::Jump(Jump { label_name: func_call.name.lexeme.clone() }));
+    ops.push(MipsOperation::JumpAndSave(JumpAndSave { label_name: func_call.name.lexeme.clone() }));
+    ops.push(MipsOperation::Add(Add {
+        store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: STACK_BASE_REGISTER }),
+        op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER),
+        op_2: MipsOperand::from_string_literal(format!("-{}", frame_size + 1))
+    }));
     return Ok(ops);
 }
 
@@ -550,28 +698,25 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
         Stmt::Function(func) => {
             let mut ops = Vec::new();
             ops.push(MipsOperation::Label(Label { label_name: func.name.lexeme.clone() }));
-            ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER) }));
             let func_env = Env::new(
                 Box::new(HashMap::new()),
                 env.borrow().functions.clone(),
                 0,
                 env.borrow().var_count,
-                env.borrow().var_count,
                 Some(Rc::clone(&env)),
-                true
             );
 
             ops.push(MipsOperation::Move(Move {
-                store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: RETURN_REGISTER }),
-                op_1: MipsOperand::Literal(String::from("ra"))
+                store: VariableMapping::StackPointer,
+                op_1: MipsOperand::from_register_number(0)
             }));
+            ops.push(MipsOperation::Push(Push { op_1: MipsOperand::Literal(String::from("ra")) }));
 
             let param_reg_ptr = 3;
             for (i, param) in func.params.iter().enumerate() {
-                ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(param_reg_ptr + i) }));
-
                 if let Stmt::Variable(p) = param {
                     func_env.borrow_mut().add_var(&p.var_name.lexeme.clone());
+                    ops.extend(write_to_stack(p.var_name.lexeme.clone(), func_env.clone(), param_reg_ptr + i));
                 }
             }
 
@@ -582,7 +727,48 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             ops.extend(func_ops);
             return Ok(ops);
         },
-        Stmt::If(_) => todo!(),
+        Stmt::If(conditional) => {
+            let mut ops = Vec::new();
+            let reg_ptr = env.borrow().get_reg_ptr();
+            
+            let mut current_label_ptr = env.borrow().get_label_ptr();
+            let num_conditions = conditional.conditions.len();
+            let final_label_ptr = current_label_ptr + num_conditions - 1;
+            let final_label_str = format!("%{}", final_label_ptr);
+
+
+            for (i, (condition, branch)) in (conditional.conditions.iter().zip(conditional.branches.iter())).enumerate() {
+                if i != 0 {
+                    ops.push(MipsOperation::Label(Label { label_name: format!("%{}", current_label_ptr) }))
+                }
+                let (condition_ops, _) = translate_ast(condition, env.clone(), reg_ptr)?;
+                ops.extend(condition_ops);
+                
+                // Branch if condition is not true 
+                current_label_ptr = env.borrow_mut().add_label();
+                let branch_label = format!("%{}", current_label_ptr);
+                ops.push(MipsOperation::Bne(Bne { 
+                    op_1: MipsOperand::from_register_number(reg_ptr),
+                    op_2: MipsOperand::from_string_literal(String::from("1")),
+                    dest: MipsOperand::from_string_literal(branch_label)
+                }));
+
+                let branch_block_env = Env::new(
+                    Box::new(HashMap::new()),
+                    env.borrow().functions.clone(),
+                    0,
+                    env.borrow().var_count,
+                    Some(Rc::clone(&env)),
+                );
+                let branch_ops = translate(branch, branch_block_env)?;
+                ops.extend(branch_ops);
+                if i != num_conditions - 1 {
+                    ops.push(MipsOperation::Jump(Jump { label_name: final_label_str.clone() }))
+                }
+            }
+            ops.push(MipsOperation::Label(Label { label_name: format!("%{}", current_label_ptr)}));
+            return Ok(ops);
+        },
         Stmt::Return(ret) => {
             let mut ops = Vec::new();
             let reg_ptr = env.borrow().get_reg_ptr();
@@ -591,8 +777,9 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
                 ops.extend(ret_expr_ops);
             }
 
-            ops.push(MipsOperation::Pop(Pop { op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER) }));
-            ops.push(MipsOperation::JumpReg(JumpReg { reg: MipsOperand::from_register_number(RETURN_REGISTER)} ));
+            ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0), op_2: MipsOperand::Literal(String::from("1"))}));
+            ops.push(MipsOperation::Peek(Peek { op_1: MipsOperand::VariableMapping(VariableMapping::ReturnAddress)}));
+            ops.push(MipsOperation::Return(Return {}));
             return Ok(ops);
         },
         Stmt::Variable(var) => {
@@ -612,15 +799,86 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             }
             return Ok(var_ops);
         },
-        Stmt::While(_) => todo!(),
-        Stmt::For(_) => todo!(),
+        Stmt::While(wh) => {
+            // j y
+            // x:
+            // loop body
+            // y:
+            // condition
+            // beq condition 1 x
+            let body_env = Env::new(
+                Box::new(HashMap::new()),
+                env.borrow().functions.clone(),
+                0,
+                env.borrow().var_count,
+                Some(Rc::clone(&env)),
+            );
+            let mut ops = Vec::new();
+            let body_label = format!("%{}", env.borrow_mut().add_label());
+            ops.push(MipsOperation::Label(Label { label_name: body_label.clone() }));
+            ops.extend(translate(&wh.body, body_env)?);
+
+            let condition_label = format!("%{}", env.borrow_mut().add_label());
+            ops.push(MipsOperation::Label(Label { label_name: condition_label}));
+
+            let reg_ptr = env.borrow().get_reg_ptr();
+            let (cond_ops, _) = translate_ast(&wh.condition, env.clone(), reg_ptr)?;
+            ops.extend(cond_ops);
+            ops.push(MipsOperation::Beq(Beq { 
+                op_1: MipsOperand::from_register_number(reg_ptr),
+                op_2: MipsOperand::from_string_literal(String::from("1")),
+                dest: MipsOperand::from_string_literal(body_label.clone())
+            }));
+
+            return Ok(ops)
+        },
+        Stmt::For(for_stmt) => {
+            let mut ops = Vec::new();
+            if let Some(variant) = &for_stmt.variant {
+                ops.extend(translate(variant, env.clone())?);
+            }
+
+            let body_env = Env::new(
+                Box::new(HashMap::new()),
+                env.borrow().functions.clone(),
+                0,
+                env.borrow().var_count,
+                Some(Rc::clone(&env)),
+            );
+
+            let body_label = format!("%{}", env.borrow_mut().add_label());
+            ops.push(MipsOperation::Label(Label { label_name: body_label.clone() }));
+            ops.extend(translate(&for_stmt.body, body_env)?);
+            if let Some(incrementer) = &for_stmt.incrementer {
+                ops.extend(translate(incrementer, env.clone())?)
+            }
+
+            let condition_label = format!("%{}", env.borrow_mut().add_label());
+            ops.push(MipsOperation::Label(Label {label_name: condition_label}));
+            let reg_ptr = env.borrow().get_reg_ptr();
+            let (cond_ops, _) = translate_ast(&for_stmt.condition, env.clone(), reg_ptr)?;
+            ops.extend(cond_ops);
+            ops.push(MipsOperation::Beq(Beq { 
+                op_1: MipsOperand::from_register_number(reg_ptr),
+                op_2: MipsOperand::from_string_literal(String::from("1")),
+                dest: MipsOperand::from_string_literal(body_label.clone())
+            }));
+            
+            return Ok(ops)
+        },
         Stmt::Assign(assign) => {
             let return_register = env.borrow().get_reg_ptr();
+            let stack_addr_opt: Option<usize> = env.borrow().get_variable_index(assign.var_name.lexeme.clone());
+            if None == stack_addr_opt {
+                translating_error(assign.var_name, String::from("Variable does not exist in the current scope"));
+                return Err(Error)
+            }
+
             let (mut ops, _) = translate_ast(&assign.binding, env.clone(), return_register)?;
             ops.extend(write_to_stack(assign.var_name.lexeme.clone(), env.clone(), return_register));
             return Ok(ops)
         },
-        Stmt::FunctionCall(func_call) => translate_function_call(func_call, env)
+        Stmt::FunctionCall(func_call) => translate_function_call(func_call, env.clone(), env.borrow().frame_ptr)
     }
 }
 
@@ -641,9 +899,7 @@ pub fn translate_statements(statements: Vec<Stmt>) -> String {
         Rc::new(HashMap::new().into()), 
         0, 
         0,
-        0,
         None,
-        false
     );
 
     for stmt in &statements {

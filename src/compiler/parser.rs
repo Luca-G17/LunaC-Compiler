@@ -46,6 +46,11 @@ pub struct NullExpr {
 }
 
 #[derive(Clone)]
+pub struct StoredValueExpr {
+    pub(super) value: usize
+}
+
+#[derive(Clone)]
 pub enum Expr<'a> {
     Binary(BinaryExpr<'a>),
     Call(CallExpr<'a>),
@@ -54,7 +59,7 @@ pub enum Expr<'a> {
     Logical(LogicalExpr<'a>),
     Unary(UnaryExpr<'a>),
     Variable(VariableExpr<'a>),
-    Null(NullExpr)
+    StoredValueExpr(StoredValueExpr)
 }
 
 pub struct BlockStmt<'a> {
@@ -133,7 +138,7 @@ pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
                 match param {
                     Stmt::Variable(p) => {
                         str.push_str(&format!("{} {}", p.var_type.lexeme, p.var_name.lexeme));
-                        if i <= s.params.len() - 2 {
+                        if s.params.len() > 1 && i <= s.params.len() - 2 {
                             str.push_str(", ");
                         }
                     },
@@ -257,7 +262,7 @@ fn parenthesize_expr(expr: Box<Expr>) -> String {
         Expr::Literal(e) => {
             match e.value {
                 Some(v) => String::from(v.lexeme.clone()),
-                None => String::from("nil")
+                None => String::from("")
             }
         },
         Expr::Unary(e) => parenthesize(e.operator.lexeme.clone(), Vec::from([e.right])),
@@ -267,7 +272,7 @@ fn parenthesize_expr(expr: Box<Expr>) -> String {
             pretty_print_stmt(&call_stmt, 0) 
         },
         Expr::Logical(_) => String::from(""),
-        Expr::Null(_) => String::from("")
+        Expr::StoredValueExpr(sto) => format!("{}", sto.value)
     }
 } 
 
@@ -389,7 +394,7 @@ fn for_statement(current: usize, tokens: &Vec<Token>) -> Result<(Stmt, usize), P
 
     let condition;
     if match_token(&mut current, tokens, &Vec::from([TokenType::Semicolon])) {
-        condition = Box::new(Expr::Null(NullExpr {}));
+        condition = Box::new(Expr::StoredValueExpr(StoredValueExpr { value: 1 } ));
     }
     else {
         match expression_statement(current, tokens) {
@@ -489,7 +494,7 @@ fn if_statement(current: usize, tokens: &Vec<Token>) -> Result<(Stmt, usize), Pa
     }
 
     if previous(current, tokens).tok_type == TokenType::Else {
-        conditions.push(Expr::Null(NullExpr {}));
+        conditions.push(Expr::Literal(LiteralExpr { value: None }));
         match block_statement(current, tokens, 2) {
             Ok((branch, c)) => {
                 branches.push(Stmt::Block(branch));
@@ -591,7 +596,7 @@ fn declaration_statement(current: usize, tokens: &Vec<Token>, depth: usize, inli
             Err(_) => {
                 current = error_synchronise(current, tokens);
                 return Ok((Stmt::Expression(ExprStmt {
-                    expression: Box::new(Expr::Null(NullExpr {}))
+                    expression: Box::new(Expr::StoredValueExpr(StoredValueExpr { value: 1 }))
                 }), current));
             }
         }
@@ -603,7 +608,7 @@ fn declaration_statement(current: usize, tokens: &Vec<Token>, depth: usize, inli
             Err(_) => {
                 current = error_synchronise(current, tokens);
                 return Ok((Stmt::Expression(ExprStmt {
-                    expression: Box::new(Expr::Null(NullExpr {}))
+                    expression: Box::new(Expr::StoredValueExpr(StoredValueExpr { value: 1 }))
                 }
                 ), current));
             }
@@ -736,7 +741,7 @@ fn consume_token(token_type: TokenType, message: String, current: usize, tokens:
 }
 
 fn expression(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
-    return bitwise_or(current, tokens);
+    return logical_or(current, tokens);
 }
 
 fn parsing_error(token: &Token, message: String) {
@@ -853,6 +858,14 @@ fn bitwise_xor(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize)
 
 fn bitwise_or(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::BitwiseOr]), bitwise_xor);
+}
+
+fn logical_and(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+    return ast_binary_operation(current, tokens, &Vec::from([TokenType::And]), bitwise_or);
+}
+
+fn logical_or(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+    return ast_binary_operation(current, tokens, &Vec::from([TokenType::Or]), logical_and);
 }
 
 fn match_token(current: &mut usize, tokens: &Vec<Token>, types: &Vec<TokenType>) -> bool {

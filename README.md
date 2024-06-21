@@ -111,7 +111,11 @@ In the interest of reducing assembly file size we must minimize stack usage i.e.
     - A tmp return register is allocated 
     - Locals and parameters are pushed onto the stack - We must maintain a mapping in order to load parameters after return
     - Function parameters and locals are loaded into registers
+#### If Statements
+In order to translate an if statement we must first compute the condition expression and store the result in r6 and insert a branch if equal instruction, we can then translate the body of each branch adding labels where necessary. Since we don't have a cmp operator in MIPS we must define a regime for translating logical operations which include comparisons. MIPS does have a set of comparison-and-set operators
 
+## Optimisers
+- [ ] Conditional branch reduction - The translation of logical statements utilises 's**' operations (e.g. sgt) meaning a the result is stored in a specified register, in the case of conditional statements this operation is always followed by a 'beq' or 'bne' operation these can be reduced to just 'bgt'
 ## Long Term
 - [ ] Ternary if statements
 - [ ] Assignment by operation (e.g. +=)
