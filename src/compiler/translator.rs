@@ -7,6 +7,7 @@ use std::rc::Rc;
 use crate::error_handler::report;
 use super::parser::{FuncCallStmt, FuncStmt, VariableExpr};
 use super::{parser::{Stmt, Expr}, scanner::{Token, TokenType}};
+use super::mips_operations::*;
 
 const NUM_REGISTERS: usize = 16;
 const STACK_BASE_REGISTER: usize = 0;
@@ -27,222 +28,7 @@ impl<'a> PartialEq for FuncStmt<'a> {
 impl<'a> Eq for FuncStmt<'a> {}
 
 // These variants allow us to dynamic dispatch depending on the mapping type
-#[derive(Clone)]
-struct RegisterMapping {
-    reg_no: usize
-}
 
-#[derive(Clone)]
-struct StackMapping {
-    relative_addr: usize,
-}
-
-#[derive(Clone)]
-enum VariableMapping {
-    RegisterMapping(RegisterMapping),
-    StackMapping(StackMapping),
-    StackPointer,
-    ReturnAddress
-}
-
-impl VariableMapping {
-    fn from_register_number(reg_no: usize) -> Self {
-        return VariableMapping::RegisterMapping(RegisterMapping { reg_no })
-    } 
-}
-
-#[derive(Clone)]
-struct Move {
-    store: VariableMapping,
-    op_1: MipsOperand
-}
-
-#[derive(Clone)]
-struct Add {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Sub {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Mul {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Div {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Push {
-    op_1: MipsOperand,
-}
-
-#[derive(Clone)]
-struct Peek {
-    op_1: MipsOperand,
-}
-
-#[derive(Clone)]
-struct Pop {
-    op_1: MipsOperand,
-}
-
-#[derive(Clone)]
-struct Label {
-    label_name: String
-}
-
-#[derive(Clone)]
-struct JumpAndSave {
-    label_name: String
-}
-
-#[derive(Clone)]
-struct JumpReg {
-    reg: MipsOperand
-}
-
-#[derive(Clone)]
-struct And {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Or {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Not {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Xor {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Seq {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Sgt {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Sge {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Slt {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Sle {
-    store: VariableMapping,
-    op_1: MipsOperand,
-    op_2: MipsOperand
-}
-
-#[derive(Clone)]
-struct Bne {
-    op_1: MipsOperand,
-    op_2: MipsOperand,
-    dest: MipsOperand
-}
-
-#[derive(Clone)]
-struct Beq {
-    op_1: MipsOperand,
-    op_2: MipsOperand,
-    dest: MipsOperand
-}
-
-#[derive(Clone)]
-struct Jump {
-    label_name: String
-}
-
-#[derive(Clone)]
-struct Return {}
-
-#[derive(Clone)]
-enum MipsOperand {
-    VariableMapping(VariableMapping),
-    Literal(String)
-}
-
-impl MipsOperand {
-    fn from_register_number(reg_no: usize) -> Self {
-        MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no }))
-    }
-
-    fn from_string_literal(str: String) -> Self {
-        MipsOperand::Literal(str)
-    }
-}
-
-#[derive(Clone)]
-enum MipsOperation {
-    Move(Move),
-    Add(Add),
-    Sub(Sub),
-    Mul(Mul),
-    Div(Div),
-    And(And),
-    Or(Or),
-    Not(Not),
-    Xor(Xor),
-    Beq(Beq),
-    Bne(Bne),
-    Seq(Seq),
-    Sgt(Sgt),
-    Sge(Sge),
-    Slt(Slt),
-    Sle(Sle),
-    Push(Push),
-    Peek(Peek),
-    Pop(Pop),
-    Label(Label),
-    JumpAndSave(JumpAndSave),
-    JumpReg(JumpReg),
-    Jump(Jump),
-    Return(Return)
-}
 
 #[derive(Clone)]
 struct Env<'a> {
@@ -582,7 +368,6 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
             return Ok((ops, var_ptr))
         },
         Expr::Grouping(e) => translate_ast(&e.expression, env.clone(), var_ptr),
-        Expr::Logical(_) => todo!(),
         Expr::StoredValueExpr(sto) => return Ok((
             Vec::from([MipsOperation::Move(Move {
                 store: VariableMapping::from_register_number(var_ptr),
@@ -710,7 +495,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
                 store: VariableMapping::StackPointer,
                 op_1: MipsOperand::from_register_number(0)
             }));
-            ops.push(MipsOperation::Push(Push { op_1: MipsOperand::Literal(String::from("ra")) }));
+            ops.push(MipsOperation::Push(Push { op_1: MipsOperand::VariableMapping(VariableMapping::ReturnAddress) }));
 
             let param_reg_ptr = 3;
             for (i, param) in func.params.iter().enumerate() {
@@ -891,8 +676,16 @@ fn translating_error(token: &Token, message: String) {
     }
 }
 
-pub fn translate_statements(statements: Vec<Stmt>) -> String {
+pub fn mips_operations_to_string(ops: &Vec<MipsOperation>) -> String {
+    let mut ops_str = String::new();
+    for op in ops {
+        let op_string = mips_operation_to_string(op.clone());
+        ops_str.push_str(&op_string);
+    }
+    return ops_str;
+}
 
+pub fn translate_statements(statements: Vec<Stmt>) -> Vec<MipsOperation> {
     // Construct global environment
     let global_env = Env::new(
         Box::new(HashMap::new()), 
@@ -912,16 +705,11 @@ pub fn translate_statements(statements: Vec<Stmt>) -> String {
     }
     
     let mut mips = Vec::new();
+    mips.push(MipsOperation::Jump(Jump { label_name: String::from("main") }));
     for stmt in &statements {
         if let Ok(ops) = translate(&stmt, global_env.clone()) {
             mips = [mips, ops].concat();
         }
     }
-
-    let mut ops_str = String::new();
-    for op in mips {
-        let op_string = mips_operation_to_string(op);
-        ops_str.push_str(&op_string);
-    }
-    return ops_str;
+    return mips;
 }

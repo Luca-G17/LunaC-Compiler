@@ -22,7 +22,7 @@ pub enum TokenType {
     Greater, GreaterEqual,
     Less, LessEqual,
 
-    Identifier, String, Literal, Number,
+    Identifier, String, Number,
     
     BitwiseAnd,
     BitwiseOr,

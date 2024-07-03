@@ -24,13 +24,6 @@ pub struct LiteralExpr<'a> {
 }
 
 #[derive(Clone)]
-pub struct LogicalExpr<'a> {
-    pub(super) left: Box<Expr<'a>>,
-    pub(super) right: Box<Expr<'a>>,
-    pub(super) operator: &'a Token,
-}
-
-#[derive(Clone)]
 pub struct UnaryExpr<'a> {
     pub(super) operator: &'a Token,
     pub(super) right: Box<Expr<'a>>,
@@ -39,10 +32,6 @@ pub struct UnaryExpr<'a> {
 #[derive(Clone)]
 pub struct VariableExpr<'a> {
     pub(super) name: &'a Token,
-}
-
-#[derive(Clone)]
-pub struct NullExpr {
 }
 
 #[derive(Clone)]
@@ -56,7 +45,6 @@ pub enum Expr<'a> {
     Call(CallExpr<'a>),
     Grouping(GroupingExpr<'a>),
     Literal(LiteralExpr<'a>),
-    Logical(LogicalExpr<'a>),
     Unary(UnaryExpr<'a>),
     Variable(VariableExpr<'a>),
     StoredValueExpr(StoredValueExpr)
@@ -75,7 +63,6 @@ pub struct FuncStmt<'a> {
     pub(super) ret_type: &'a Token,
     pub(super) params: Vec<Stmt<'a>>,
     pub(super) body: Box<Stmt<'a>>,
-    pub(super) generated: bool
 }
 
 pub struct IfStmt<'a> {
@@ -271,7 +258,6 @@ fn parenthesize_expr(expr: Box<Expr>) -> String {
             let call_stmt = Stmt::FunctionCall(e.call.clone());
             pretty_print_stmt(&call_stmt, 0) 
         },
-        Expr::Logical(_) => String::from(""),
         Expr::StoredValueExpr(sto) => format!("{}", sto.value)
     }
 } 
@@ -290,34 +276,6 @@ fn parenthesize(name: String, exprs: Vec<Box<Expr>>) -> String {
 pub fn ast_pretty_printer(expr: Box<Expr>) -> String {
     return parenthesize_expr(expr)
 }
-
-pub fn test_pretty_printer() {
-    let minus = Token { tok_type: TokenType::Minus, lexeme: "-".to_string(), literal: "-".to_string(), line_no: 1 };
-    let right_num = Token { tok_type: TokenType::Literal, lexeme: "123".to_string(), literal: "123".to_string(), line_no: 1};
-    let group_num = Token { tok_type: TokenType::Literal, lexeme: "45.67".to_string(), literal: "45.67".to_string(), line_no: 1};
-    let star = Token { tok_type: TokenType::Star, lexeme: "*".to_string(), literal: "*".to_string(), line_no: 1 };
-
-    let expr = Box::new(Expr::Binary(BinaryExpr {
-        left: Box::new(
-            Expr::Unary(UnaryExpr {
-                operator: &minus,
-                right: Box::new(Expr::Literal(LiteralExpr {
-                    value: Some(&right_num)
-                }))
-            })
-        ),
-        right: Box::new(
-            Expr::Grouping(GroupingExpr {
-                expression: Box::new(Expr::Literal(LiteralExpr {
-                    value: Some(&group_num)
-                }))
-            })
-        ),
-        operator: &star
-    }));
-    println!("{}", ast_pretty_printer(expr))
-}
-
 
 pub fn parse(tokens: &Vec<Token>) -> Vec<Stmt> {
     let mut statements: Vec<Stmt> = vec![];
@@ -655,7 +613,6 @@ fn function_declaration<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize
                 params: args,
                 body: Box::new(Stmt::Block(stmts)),
                 ret_type,
-                generated: false
             }), c))
         },
         Err(_) => Err(ParserError)

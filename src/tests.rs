@@ -2,9 +2,10 @@ use std::fs;
 
 use crate::compiler::parser;
 use crate::compiler::scanner;
+use crate::compiler::translate_and_emulate;
 
 #[cfg(test)]
-pub mod test_runners {
+pub mod parser_tests {
     use super::*;
 
     #[test]
@@ -28,8 +29,26 @@ pub mod test_runners {
     }
 }
 
+#[cfg(test)]
+pub mod translator_tests {
+    use super::*;
+
+    #[test]
+    pub fn fibonacci() {
+        test_translation(String::from("fibonacci_recursive"), false, 144.0)
+    }
+}
+
+#[allow(dead_code)]
+pub fn test_translation(test_name: String, verbose: bool, expected: f32) {
+    let filename = format!("tests/translation_tests/{}.c", test_name);
+    let result = translate_and_emulate(filename);
+    assert_eq!(result, expected);
+}
+
+#[allow(dead_code)]
 pub fn test_parser(test_name: String, verbose: bool) {
-    let filename = format!("tests/{}.c", test_name);
+    let filename = format!("tests/parser_tests/{}.c", test_name);
     let contents = fs::read_to_string(filename).expect("Failed to read file");
     let tokens = scanner::scan_tokens(contents);
     let stmts = parser::parse(&tokens);
@@ -38,7 +57,7 @@ pub fn test_parser(test_name: String, verbose: bool) {
         result.push_str(&parser::pretty_print_stmt(&stmt, 0));
     }
 
-    let truth_filename = format!("tests/{}_truth", test_name);
+    let truth_filename = format!("tests/parser_tests/{}_truth", test_name);
     let truth_contents = fs::read_to_string(truth_filename).expect("Failed to read file");
 
     if verbose {

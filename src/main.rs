@@ -23,7 +23,8 @@ fn main() {
     // if let Some(e) = test  {
     //     println!("{}", parser::ast_pretty_printer(e));
     // }
-    let result = translator::translate_statements(stmts);
-    print!("{}", result);
+    //let result = translator::translate_statements(stmts);
+    //let result_str = translator::mips_operations_to_string(&result);
+    //print!("{}", result_str);
 }
 
