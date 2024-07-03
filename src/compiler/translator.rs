@@ -95,12 +95,19 @@ impl<'a> Env<'a> {
     }
 
     fn get_variable_index(&self, var_name: String) -> Option<usize> {
-        let mapping = self.mapping.get(&var_name)?;
-        match mapping {
-            VariableMapping::RegisterMapping(reg_map) => Some(reg_map.reg_no),
-            VariableMapping::StackMapping(stc_map) => Some(stc_map.relative_addr),
-            VariableMapping::StackPointer | VariableMapping::ReturnAddress => None,
+        if let Some(mapping) = self.mapping.get(&var_name) {
+            return match mapping {
+                VariableMapping::RegisterMapping(reg_map) => Some(reg_map.reg_no),
+                VariableMapping::StackMapping(stc_map) => Some(stc_map.relative_addr),
+                VariableMapping::StackPointer | VariableMapping::ReturnAddress => None,
+            }
         }
+        
+        if let Some(p) = &self.parent {
+            return p.borrow().get_variable_index(var_name);
+        }
+
+        None
     }
 
     fn get_variable_mapping(&self, var_name: &str) -> Option<VariableMapping> {

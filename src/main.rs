@@ -8,7 +8,6 @@ mod compiler;
 mod error_handler;
 mod tests;
 
-
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut filename = &String::from("conditional_testing.c");
