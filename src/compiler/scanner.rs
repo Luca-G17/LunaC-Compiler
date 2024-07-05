@@ -13,7 +13,7 @@ pub enum TokenType {
     RightBrace,
     Comma, 
     Dot,
-    Minus, Plus, Semicolon, Slash, Star, Ref, Percent,
+    Minus, Plus, Semicolon, Slash, Star, Percent,
 
     Bang, 
     BangEqual,
@@ -21,6 +21,12 @@ pub enum TokenType {
     EqualEqual,
     Greater, GreaterEqual,
     Less, LessEqual,
+    AndEqual, OrEqual,
+    PlusEqual, MinusEqual,
+    StarEqual, SlashEqual,
+    XorEqual,
+    PercentEqual,
+    LeftShiftEqual, RightShiftEqual,
 
     Identifier, String, Number,
     
@@ -41,10 +47,24 @@ pub enum TokenType {
     While,
     Int, Float, Double, Char, Signed, Long, 
 
-    
     Eof
 }
 
+pub(super) fn tok_type_string(tok_type: TokenType) -> String {
+    match tok_type {
+        TokenType::BitwiseAnd => String::from("&"),
+        TokenType::BitwiseOr => String::from("|"),
+        TokenType::Plus => String::from("+"),
+        TokenType::Minus => String::from("-"),
+        TokenType::Star => String::from("*"),
+        TokenType::Slash => String::from("/"),
+        TokenType::Percent => String::from("%"),
+        TokenType::BitwiseXor => String::from("^"),
+        _ => String::from("")
+    }
+}
+
+#[derive(Clone)]
 pub struct Token {
     pub tok_type: TokenType,
     pub lexeme: String,
@@ -77,20 +97,55 @@ impl Scanner {
             '}' => self.add_token(TokenType::RightBrace, c.to_string()),
             ',' => self.add_token(TokenType::Comma, c.to_string()),
             '.' => self.add_token(TokenType::Dot, c.to_string()),
-            '-' => self.add_token(TokenType::Minus, c.to_string()),
-            '+' => self.add_token(TokenType::Plus, c.to_string()),
             ';' => self.add_token(TokenType::Semicolon, c.to_string()),
-            '*' => self.add_token(TokenType::Star, c.to_string()),
-            '%' => self.add_token(TokenType::Percent, c.to_string()),
             '~' => self.add_token(TokenType::BitwiseBang, c.to_string()),
-            '^' => self.add_token(TokenType::BitwiseXor, c.to_string()),
             '&' => { 
-                let tok_type = if self.match_char('&') { TokenType::And } else { TokenType::BitwiseAnd };
-                self.add_token(tok_type, c.to_string());
+                let next = self.peek();
+                match next {
+                    '&' => {
+                        self.add_token(TokenType::And, c.to_string());
+                        self.next_char();
+                    },
+                    '=' => {
+                        self.add_token(TokenType::AndEqual, c.to_string());
+                        self.next_char();
+                    },
+                    _ => self.add_token(TokenType::BitwiseAnd, c.to_string())
+                }
             },
             '|' => { 
-                let tok_type = if self.match_char('|') { TokenType::Or } else { TokenType::BitwiseOr };
-                self.add_token(tok_type, c.to_string());
+                let next = self.peek();
+                match next {
+                    '|' => {
+                        self.add_token(TokenType::Or, c.to_string());
+                        self.next_char();
+                    },
+                    '=' => {
+                        self.add_token(TokenType::OrEqual, c.to_string());
+                        self.next_char();
+                    },
+                    _ => self.add_token(TokenType::BitwiseOr, c.to_string()),
+                }
+            },
+            '^' => { 
+                let tok_type = if self.match_char('=') { TokenType::XorEqual } else { TokenType::BitwiseXor };
+                self.add_token(tok_type, c.to_string()) 
+            },
+            '%' => { 
+                let tok_type = if self.match_char('=') { TokenType::PercentEqual } else { TokenType::Percent };
+                self.add_token(tok_type, c.to_string()) 
+            },
+            '*' => { 
+                let tok_type = if self.match_char('=') { TokenType::StarEqual } else { TokenType::Star };
+                self.add_token(tok_type, c.to_string()) 
+            },
+            '+' => { 
+                let tok_type = if self.match_char('=') { TokenType::PlusEqual } else { TokenType::Plus };
+                self.add_token(tok_type, c.to_string()) 
+            },
+            '-' => { 
+                let tok_type = if self.match_char('=') { TokenType::MinusEqual } else { TokenType::Minus };
+                self.add_token(tok_type, c.to_string())
             },
             '!' => { 
                 let tok_type = if self.match_char('=') { TokenType::BangEqual } else { TokenType::Bang };
@@ -108,8 +163,9 @@ impl Scanner {
                         self.next_char();
                     }
                     '<' => { 
-                        self.add_token(TokenType::LeftShift, c.to_string());
                         self.next_char();
+                        let tok_type = if self.match_char('=') { TokenType::LeftShiftEqual } else { TokenType::LeftShift };
+                        self.add_token(tok_type, c.to_string());
                     }
                     _ => self.add_token(TokenType::Less, c.to_string())
                 }
@@ -122,19 +178,24 @@ impl Scanner {
                         self.next_char();
                     }
                     '>' => { 
-                        self.add_token(TokenType::RightShift, c.to_string());
                         self.next_char();
+                        let tok_type = if self.match_char('=') { TokenType::RightShiftEqual } else { TokenType::RightShift };
+                        self.add_token(tok_type, c.to_string());
                     }
                     _ => self.add_token(TokenType::Greater, c.to_string())
                 }
             },
             '/' => {
-                if self.match_char('/') {
-                    // Advance through comment
-                    while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); }
-                }
-                else {
-                    self.add_token(TokenType::Slash, c.to_string());
+
+                let next = self.peek();
+                // Advance through comment
+                match next {
+                    '/' => while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); },
+                    '=' => {
+                        self.add_token(TokenType::SlashEqual, c.to_string());
+                        self.next_char();
+                    }, 
+                    _ => self.add_token(TokenType::Slash, c.to_string())
                 }
             }
             '"' => self.parse_string(),

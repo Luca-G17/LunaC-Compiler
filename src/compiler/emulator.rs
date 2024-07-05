@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-
+use crate::error_handler::print_stage;
 use super::mips_operations::*;
 
 const NUM_REGISTERS: usize = 16;
@@ -182,7 +182,105 @@ fn label_line_numbers(ops: &Vec<MipsOperation>) -> HashMap<String, usize> {
     return label_mapping
 }
 
-pub(super) fn process_operations(ops: Vec<MipsOperation>) -> f32 {
+fn print_stack(stack: &[f32], print_size: usize) {
+    // Define the width of each box
+    let box_width = 2;
+
+    // Define box-drawing characters
+    let top_left = '┌';
+    let top_right = '┐';
+    let bottom_left = '└';
+    let bottom_right = '┘';
+    let horizontal = '─';
+    let vertical = '│';
+    let top_t = '┬';
+    let bottom_t = '┴';
+    let intersection = '┼';
+    let left_t = '├';
+    let right_t = '┤';
+    let mut stack_str = String::from("");
+
+    // Print top border
+    stack_str.push_str(&format!("{}", top_left));
+    stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
+    stack_str.push_str(&format!("{}", top_t));
+    for i in 0..print_size {
+        let box_width = stack[i].to_string().len() + 2;
+
+        stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
+        if i < print_size - 1 {
+            stack_str.push_str(&format!("{}", top_t));
+        }
+    }
+    stack_str.push_str(&format!("{}\n", top_right));
+
+    // Print middle part with numbers
+    stack_str.push_str(&format!("{}", vertical));
+    stack_str.push_str(&format!(" Index "));
+    stack_str.push_str(&format!("{}", vertical));
+    for i in 0..print_size {
+        let num_str = i.to_string();
+        let extra_padding = stack[i].to_string().len() - num_str.len();
+        let padding = 1 + (box_width - num_str.len()) / 2;
+        stack_str.push_str(&format!(
+            "{}{}{}",
+            " ".repeat(padding + extra_padding),
+            num_str,
+            " ".repeat(padding)
+        ));
+        stack_str.push_str(&format!("{}", vertical));
+    }
+    stack_str.push_str("\n");
+
+    // Print middle border
+    stack_str.push_str(&format!("{}", left_t));
+    stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
+    stack_str.push_str(&format!("{}", intersection));
+    for i in 0..print_size {
+        let box_width = stack[i].to_string().len() + 2;
+        stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
+        if i < print_size - 1 {
+            stack_str.push_str(&format!("{}", intersection));
+        }
+    }
+    stack_str.push_str(&format!("{}", right_t));
+
+    stack_str.push_str("\n");
+
+    // Print middle part with numbers
+    stack_str.push_str(&format!("{}", vertical));
+    stack_str.push_str(&format!(" Value "));
+    stack_str.push_str(&format!("{}", vertical));
+    for i in 0..print_size {
+        let num_str = stack[i].to_string();
+        let padding = 1;
+        stack_str.push_str(&format!(
+            "{}{}{}",
+            " ".repeat(padding),
+            num_str,
+            " ".repeat(padding)
+        ));
+        stack_str.push_str(&format!("{}", vertical));
+    }
+    stack_str.push_str("\n");
+
+    // Print middle border
+    stack_str.push_str(&format!("{}", bottom_left));
+    stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
+    stack_str.push_str(&format!("{}", bottom_t));
+    for i in 0..print_size {
+        let box_width = stack[i].to_string().len() + 2;
+        stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
+        if i < print_size - 1 {
+            stack_str.push_str(&format!("{}", bottom_t));
+        }
+    }
+    stack_str.push_str(&format!("{}\n", bottom_right));
+
+    print_stage(stack_str, String::from("STACK STATE:"));
+}
+
+pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usize) -> f32 {
     let mut registers = [0.0; NUM_REGISTERS];
     let mut stack = [0.0; STACK_SIZE];
     let mut sp = 0;
@@ -195,6 +293,7 @@ pub(super) fn process_operations(ops: Vec<MipsOperation>) -> f32 {
         line_no = process_operation(&op, &label_mapping, &mut registers, &mut stack, line_no, &mut sp, &mut ra);
         line_no += 1;
     }
-
+    
+    print_stack(&stack, stack_print_size);
     return stack[1];
 }

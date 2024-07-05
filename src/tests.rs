@@ -45,7 +45,7 @@ pub mod translator_tests {
 
     #[test]
     pub fn weird_loops() {
-        test_translation(String::from("weird_loops"), 41.0);
+        test_translation(String::from("weird_loops"), -41.0);
     }
 }
 

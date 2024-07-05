@@ -1,8 +1,5 @@
 use std::env;
-use std::fs;
-use compiler::parser;
-use compiler::scanner;
-use compiler::translator;
+use compiler::translate_and_emulate;
 
 mod compiler;
 mod error_handler;
@@ -15,15 +12,7 @@ fn main() {
         filename = &args[1];
     }
 
-    let contents = fs::read_to_string(filename).expect("Failed to read file");
-    let tokens = scanner::scan_tokens(contents);
-    let stmts = parser::parse(&tokens);
-    // let test = parser::parse_expr(&tokens);
-    // if let Some(e) = test  {
-    //     println!("{}", parser::ast_pretty_printer(e));
-    // }
-    //let result = translator::translate_statements(stmts);
-    //let result_str = translator::mips_operations_to_string(&result);
-    //print!("{}", result_str);
+    // translate_and_print(filename.to_string());
+    translate_and_emulate(filename.to_string());
 }
 

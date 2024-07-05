@@ -1,11 +1,13 @@
-use crate::{error_handler::report, compiler::scanner::{Token, TokenType}};
+use crate::{compiler::scanner::{Token, TokenType}, error_handler::{print_stage, report}};
+use super::scanner::tok_type_string;
+
 struct ParserError;
 
 #[derive(Clone)]
 pub struct BinaryExpr<'a> {
     pub(super) left: Box<Expr<'a>>,
     pub(super) right: Box<Expr<'a>>,
-    pub(super) operator: &'a Token,
+    pub(super) operator: Token,
 }
 
 #[derive(Clone)]
@@ -281,18 +283,20 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<Stmt> {
     let mut statements: Vec<Stmt> = vec![];
     let mut current = 0;
 
+    let mut parsed_str = String::from("");
     while !is_at_eof(current, tokens) {
         let stmt_res = declaration_statement(current, tokens, 0, false);
         match stmt_res {
             Ok((stmt, c)) => {
                 current = c;
-                println!("{}", pretty_print_stmt(&stmt, 0));
+                parsed_str.push_str(&pretty_print_stmt(&stmt, 0));
                 statements.push(stmt);
             }
             Err(_) => panic!("Internal compiler error.")
         }
-    } 
+    }
 
+    print_stage(parsed_str, String::from("PARSED CODE:"));
     return statements;
 }
 
@@ -500,31 +504,60 @@ fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifie
     }), current));
 } 
 
+fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: bool) -> Result<(Stmt, usize), ParserError> {
+    let mut current = current;
+    let identifier = previous(current, tokens);
+
+    if match_token(&mut current, tokens, &Vec::from([TokenType::Equal, TokenType::AndEqual, TokenType::OrEqual, TokenType::XorEqual, TokenType::PlusEqual, TokenType::StarEqual, TokenType::MinusEqual, TokenType::SlashEqual])) {
+        let assignment_type = previous(current, tokens);
+        if let Ok((mut binding, current)) = expression_statement(current, tokens) {
+            let mut current = current;
+            if !inline_statement {
+                (_, current) = consume_token(TokenType::Semicolon, String::from("Expect ';' after assignment."), current, tokens);
+            }
+
+            let left_variable_expr = Box::new(Expr::Variable(VariableExpr { name: identifier }));
+            let assigment_operator = match assignment_type.tok_type {
+                TokenType::AndEqual => TokenType::BitwiseAnd, 
+                TokenType::OrEqual => TokenType::BitwiseOr, 
+                TokenType::XorEqual => TokenType::BitwiseXor, 
+                TokenType::PercentEqual => TokenType::Percent, 
+                TokenType::PlusEqual => TokenType::Plus, 
+                TokenType::MinusEqual => TokenType::Minus, 
+                TokenType::StarEqual => TokenType::Star, 
+                TokenType::SlashEqual => TokenType::Slash,
+                _ => assignment_type.tok_type
+            };
+
+            if assignment_type.tok_type != TokenType::Equal {
+                let op_str = tok_type_string(assigment_operator);
+                let operator_token = Token { tok_type: assigment_operator, lexeme: op_str.clone(), literal: op_str.clone(), line_no: assignment_type.line_no };
+                binding = Box::new(Expr::Binary(BinaryExpr { 
+                    left: left_variable_expr,
+                    right: binding,
+                    operator: operator_token }
+                ));
+            }
+
+            return Ok((Stmt::Assign(AssignStmt {
+                var_name: identifier,
+                binding
+            }), current));
+        }
+        else {
+            return Err(ParserError);
+        }
+    }
+    else if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) { return function_call_statement(current, tokens, identifier, false); }
+    return Err(ParserError)
+}
+
 fn generate_statement(current: usize, tokens: &Vec<Token>, inline_statement: bool) -> Result<(Stmt, usize), ParserError> {
     let mut current = current;
     if match_token(&mut current, tokens, &Vec::from([TokenType::While])) { return while_statement(current, tokens); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::For])) { return for_statement(current, tokens); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::If])) { return if_statement(current, tokens); }
-    else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier])) {
-        let identifier = previous(current, tokens);
-
-        if match_token(&mut current, tokens, &Vec::from([TokenType::Equal])) {
-            if let Ok((binding, current)) = expression_statement(current, tokens) {
-                let mut current = current;
-                if !inline_statement {
-                    (_, current) = consume_token(TokenType::Semicolon, String::from("Expect ';' after assignment."), current, tokens);
-                }
-                return Ok((Stmt::Assign(AssignStmt {
-                    var_name: identifier,
-                    binding
-                }), current));
-            }
-            else {
-                return Err(ParserError);
-            }
-        }
-        else if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) { return function_call_statement(current, tokens, identifier, false); }
-    }
+    else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier])) { return assignment_statement(current, tokens, inline_statement); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::Return])) {
         if let Ok((binding, current)) = expression_statement(current, tokens) {
             let mut current = current;
@@ -657,18 +690,6 @@ fn variable_declaration<'a>(current: usize, tokens: &'a Vec<Token>, is_func_arg:
 
 }
 
-pub fn parse_expr(tokens: &Vec<Token>) -> Option<Box<Expr>> {
-    let current = 0;
-    let expr_result = expression(current, tokens);
-    match expr_result {
-        Ok((expr, _)) => Some(expr),
-        Err(_) => { 
-            println!("{}", String::from("Error occured during parsing"));
-            None
-        }
-    }
-}
-
 fn error_synchronise(current: usize, tokens: &Vec<Token>) -> usize {
     let mut current = current;
     next_token(&mut current, tokens);
@@ -779,7 +800,7 @@ fn ast_binary_operation<'a>(current: usize, tokens: &'a Vec<Token>, token_types:
         expr = Box::new(Expr::Binary(BinaryExpr {
             left: expr, 
             right,
-            operator
+            operator: operator.clone()
         }));
     }
     return Ok((expr, current));

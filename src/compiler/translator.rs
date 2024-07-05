@@ -229,7 +229,7 @@ fn mips_binary_operation(operator: &Token, var_ptr: usize, op_1: MipsOperand, op
         TokenType::And | TokenType::BitwiseAnd => MipsOperation::And(And {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
         TokenType::Or | TokenType::BitwiseOr => MipsOperation::Or(Or {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
         TokenType::Bang => MipsOperation::Not(Not {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
-        TokenType::BitwiseXor => MipsOperation::And(And {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
+        TokenType::BitwiseXor => MipsOperation::Xor(Xor {  store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
         TokenType::EqualEqual => MipsOperation::Seq(Seq { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
         TokenType::Greater => MipsOperation::Sgt(Sgt { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
         TokenType::GreaterEqual => MipsOperation::Sge(Sge { store: VariableMapping::from_register_number(var_ptr), op_1, op_2 }),
@@ -307,7 +307,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                 right_operand = MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr + 1}));
             }
 
-            ops.push(mips_binary_operation(e.operator, left_store_ptr, left_operand, right_operand));
+            ops.push(mips_binary_operation(&e.operator, left_store_ptr, left_operand, right_operand));
             
             if e.operator.tok_type == TokenType::Or {
                 ops.push(MipsOperation::Label(Label { label_name: format!("%{}", dest_label - 1) }));
@@ -683,7 +683,7 @@ fn translating_error(token: &Token, message: String) {
     }
 }
 
-pub fn mips_operations_to_string(ops: &Vec<MipsOperation>) -> String {
+pub(super) fn mips_operations_to_string(ops: &Vec<MipsOperation>) -> String {
     let mut ops_str = String::new();
     for op in ops {
         let op_string = mips_operation_to_string(op.clone());
@@ -692,7 +692,7 @@ pub fn mips_operations_to_string(ops: &Vec<MipsOperation>) -> String {
     return ops_str;
 }
 
-pub fn translate_statements(statements: Vec<Stmt>) -> Vec<MipsOperation> {
+pub(super) fn translate_statements(statements: Vec<Stmt>) -> Vec<MipsOperation> {
     // Construct global environment
     let global_env = Env::new(
         Box::new(HashMap::new()), 

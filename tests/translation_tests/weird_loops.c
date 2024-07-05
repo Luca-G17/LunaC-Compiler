@@ -9,10 +9,10 @@ int inf_for(int y) {
 
 int inf_while(int y) {
     while (1) {
-        if (y > 40) {
+        if (y < -40) {
             return y;
         }
-        y = y + 1;
+        y = y - 1;
     }
 }
 
