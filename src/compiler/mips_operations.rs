@@ -49,6 +49,14 @@ pub(super) struct Mul {
     pub(super) op_2: MipsOperand
 }
 
+
+#[derive(Clone)]
+pub(super) struct Mod {
+    pub(super) store: VariableMapping,
+    pub(super) op_1: MipsOperand,
+    pub(super) op_2: MipsOperand
+}
+
 #[derive(Clone)]
 pub(super) struct Div {
     pub(super) store: VariableMapping,
@@ -104,7 +112,6 @@ pub(super) struct Or {
 pub(super) struct Not {
     pub(super) store: VariableMapping,
     pub(super) op_1: MipsOperand,
-    pub(super) op_2: MipsOperand
 }
 
 #[derive(Clone)]
@@ -199,6 +206,7 @@ pub(super) enum MipsOperation {
     Sub(Sub),
     Mul(Mul),
     Div(Div),
+    Mod(Mod),
     And(And),
     Or(Or),
     Not(Not),
@@ -212,10 +220,8 @@ pub(super) enum MipsOperation {
     Sle(Sle),
     Push(Push),
     Peek(Peek),
-    Pop(Pop),
     Label(Label),
     JumpAndSave(JumpAndSave),
-    JumpReg(JumpReg),
     Jump(Jump),
     Return(Return)
 }

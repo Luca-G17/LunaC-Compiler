@@ -33,7 +33,7 @@ pub enum TokenType {
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,
-    BitwiseBang,
+    Tilde,
     LeftShift,
     RightShift,
     And, 
@@ -98,7 +98,7 @@ impl Scanner {
             ',' => self.add_token(TokenType::Comma, c.to_string()),
             '.' => self.add_token(TokenType::Dot, c.to_string()),
             ';' => self.add_token(TokenType::Semicolon, c.to_string()),
-            '~' => self.add_token(TokenType::BitwiseBang, c.to_string()),
+            '~' => self.add_token(TokenType::Tilde, c.to_string()),
             '&' => { 
                 let next = self.peek();
                 match next {
@@ -345,6 +345,6 @@ pub fn scan_tokens(source: String) -> Vec<Token> {
         scanner.scan_token();
     }
     scanner.tokens.push(Token {tok_type: TokenType::Eof, lexeme: String::from(""), literal: String::from(""), line_no: scanner.line_no});
-    // scanner.print_tokens();
+    scanner.print_tokens();
     return scanner.tokens;
 }

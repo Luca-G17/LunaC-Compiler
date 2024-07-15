@@ -4,6 +4,7 @@ use compiler::translate_and_emulate;
 mod compiler;
 mod error_handler;
 mod tests;
+mod generated_tests;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

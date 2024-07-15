@@ -118,7 +118,8 @@ In order to translate an if statement we must first compute the condition expres
 - [ ] Conditional branch reduction - The translation of logical statements utilises 's**' operations (e.g. sgt) meaning a the result is stored in a specified register, in the case of conditional statements this operation is always followed by a 'beq' or 'bne' operation these can be reduced to just 'bgt'
 ## Long Term
 - [ ] Ternary if statements
-- [ ] Assignment by operation (e.g. +=)
+- [X] Assignment by operation (e.g. +=)
 - [ ] Structs
-- [ ] Pointers
+- [X] Pointers
 - [ ] Arrays
+- [ ] 

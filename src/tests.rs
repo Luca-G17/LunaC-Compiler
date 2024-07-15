@@ -35,23 +35,28 @@ pub mod translator_tests {
 
     #[test]
     pub fn fibonacci() {
-        test_translation(String::from("fibonacci_recursive"), 144.0)
+        test_translation(String::from("fibonacci_recursive"), String::from("translation_tests"), 144.0)
     }
 
     #[test]
     pub fn sum_of_5s() {
-        test_translation(String::from("sum_of_5s_&_9s"), 1509.0);
+        test_translation(String::from("sum_of_5s_&_9s"), String::from("translation_tests"), 1509.0);
     }
 
     #[test]
     pub fn weird_loops() {
-        test_translation(String::from("weird_loops"), -41.0);
+        test_translation(String::from("weird_loops"), String::from("translation_tests"), -41.0);
+    }
+
+    #[test]
+    pub fn pointers_recursive() {
+        test_translation(String::from("pointers_recursive"), String::from("translation_tests"), 11.0);
     }
 }
 
 #[allow(dead_code)]
-pub fn test_translation(test_name: String, expected: f32) {
-    let filename = format!("tests/translation_tests/{}.c", test_name);
+pub fn test_translation(test_name: String, test_dir: String, expected: f32) {
+    let filename = format!("tests/{}/{}.c", test_dir, test_name);
     let result = translate_and_emulate(filename);
     assert_eq!(result, expected);
 }

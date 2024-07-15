@@ -68,18 +68,23 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
         MipsOperation::Or(o) => {
             let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
             let right: i32 = operand_read(registers, sp, ra, &o.op_2) as i32;
-            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal((left & right) as f32))
+            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal((left | right) as f32))
         },
         MipsOperation::Not(o) => {
             let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
-            let right: i32 = operand_read(registers, sp, ra, &o.op_2) as i32;
-            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal((left | right) as f32))
+            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal((!left) as f32))
         },
         MipsOperation::Xor(o) => {
             let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
             let right: i32 = operand_read(registers, sp, ra, &o.op_2) as i32;
             mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal((left ^ right) as f32))
         },
+        MipsOperation::Mod(o) => {
+            let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
+            let right: i32 = operand_read(registers, sp, ra, &o.op_2) as i32;
+            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal((left % right) as f32))    
+        },
+
         MipsOperation::Beq(o) => {
             let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
             let right: i32 = operand_read(registers, sp, ra, &o.op_2) as i32;
@@ -141,14 +146,6 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
                 MipsOperand::Literal(_) => panic!("Cannot peek into a literal store")
             }
         },
-        MipsOperation::Pop(o) => {
-            let value = stack[*sp - 1];
-            match &o.op_1 {
-                MipsOperand::VariableMapping(var) => mem_set(registers, sp, ra, var, &MipsOperand::from_number_literal(value)),
-                MipsOperand::Literal(_) => panic!("Cannot pop into a literal store")
-            }
-            *sp -= 1;
-        },
         MipsOperation::Label(_) => (),
         MipsOperation::JumpAndSave(o) => {
             // jal [label_name]
@@ -158,7 +155,6 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
                 None => panic!("Label not found in mapping")
             }
         },
-        MipsOperation::JumpReg(o) => line_no = operand_read(registers, sp, ra, &o.reg) as usize,
         MipsOperation::Jump(o) => {
             match label_mapping.get(&o.label_name) {
                 Some(val) => line_no = *val,
