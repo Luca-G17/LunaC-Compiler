@@ -14,6 +14,6 @@ fn main() {
     }
 
     // translate_and_print(filename.to_string());
-    translate_and_emulate(filename.to_string());
+    translate_and_emulate(filename.to_string(), 2);
 }
 

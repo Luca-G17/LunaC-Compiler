@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 int inf_for(int y) {
     for (;;) {
         if (y > 20) {
@@ -20,4 +22,5 @@ int main() {
     int x = 0;
     x = inf_for(0);
     x = inf_while(x);
+    printf("%d\n", x);
 }

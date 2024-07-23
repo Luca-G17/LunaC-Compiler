@@ -45,9 +45,10 @@ pub enum TokenType {
     Or,
     Return, 
     While,
-    Int, Float, Double, Char, Signed, Long, 
+    Int, Float, Double, Char, Signed, Long, Printf,
 
-    Eof
+    Hash,
+    Eof,
 }
 
 pub(super) fn tok_type_string(tok_type: TokenType) -> String {
@@ -76,6 +77,27 @@ impl Token {
     fn to_string(&self) -> String {
         return format!("[{}]: {} {}", self.line_no, self.literal, self.lexeme);
     }
+
+    pub(super) fn is_bitwise_operator(&self) -> bool {
+        match self.tok_type {
+            TokenType::BitwiseAnd |
+            TokenType::BitwiseOr |
+            TokenType::BitwiseXor |
+            TokenType::And |
+            TokenType::Or => true,
+            _ => false
+        }
+    }
+
+    pub(super) fn is_float_returning_operator(&self) -> bool {
+        match self.tok_type {
+            TokenType::Plus |
+            TokenType::Star |
+            TokenType::Minus |
+            TokenType::Slash => true,
+            _ => false 
+        }
+    }
 }
 
 struct Scanner {
@@ -91,6 +113,7 @@ impl Scanner {
     fn scan_token(&mut self) {
         let c = self.next_char();
         match c {
+            '#' => while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); },
             '(' => self.add_token(TokenType::LeftParen, c.to_string()),
             ')' => self.add_token(TokenType::RightParen, c.to_string()),
             '{' => self.add_token(TokenType::LeftBrace, c.to_string()),
@@ -221,7 +244,14 @@ impl Scanner {
         let text = String::from(&self.source[self.start..self.current]);
         let tok_type = self.keywords.get(&text);
         match tok_type {
-            Some(t) => self.add_token(t.clone(), text),
+            Some(t) => {
+                if *t == TokenType::Printf {
+                    while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); }
+                }
+                else {
+                    self.add_token(t.clone(), text);
+                }
+            },
             None => self.add_token(TokenType::Identifier, text),
         }
     }
@@ -327,7 +357,8 @@ fn init_keywords() -> HashMap<String, TokenType> {
         (String::from("double"), TokenType::Double),
         (String::from("signed"), TokenType::Signed),
         (String::from("char"), TokenType::Char),
-        (String::from("long"), TokenType::Long)
+        (String::from("long"), TokenType::Long),
+        (String::from("printf"), TokenType::Printf)
     ]);
 }
 

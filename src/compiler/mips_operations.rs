@@ -1,11 +1,39 @@
+use std::fmt::Error;
+
+use super::{scanner::{Token, TokenType}, translator::translating_error};
+
 #[derive(Clone)]
 pub(super) struct RegisterMapping {
-    pub(super) reg_no: usize
+    pub(super) reg_no: usize,
+    pub(super) var_type: VarType
 }
 
 #[derive(Clone)]
 pub(super) struct StackMapping {
     pub(super) relative_addr: usize,
+    pub(super) var_type: VarType
+}
+
+#[derive(Clone)]
+#[derive(PartialEq)]
+pub(super) enum VarType {
+    Int,
+    Float,
+}
+
+impl VarType {
+    pub(super) fn from_token(tok: &Token) -> Result<Self, Error> {
+        if tok.tok_type == TokenType::Int {
+            return Ok(VarType::Int)
+        }
+        else if tok.tok_type == TokenType::Float {
+            return Ok(VarType::Float)
+        }
+        else {
+            translating_error(tok, String::from("Unrecognised argument type"));
+            return Err(Error)
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -17,8 +45,8 @@ pub(super) enum VariableMapping {
 }
 
 impl VariableMapping {
-    pub(super) fn from_register_number(reg_no: usize) -> Self {
-        VariableMapping::RegisterMapping(RegisterMapping { reg_no })
+    pub(super) fn from_register_number(reg_no: usize, var_type: VarType) -> Self {
+        VariableMapping::RegisterMapping(RegisterMapping { reg_no, var_type })
     }
 }
 
@@ -62,6 +90,12 @@ pub(super) struct Div {
     pub(super) store: VariableMapping,
     pub(super) op_1: MipsOperand,
     pub(super) op_2: MipsOperand
+}
+
+#[derive(Clone)]
+pub(super) struct Floor {
+    pub(super) store: VariableMapping,
+    pub(super) op_1: MipsOperand
 }
 
 #[derive(Clone)]
@@ -186,8 +220,12 @@ pub(super) enum MipsOperand {
 }
 
 impl MipsOperand {
-    pub(super) fn from_register_number(reg_no: usize) -> Self {
-        MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no }))
+    pub(super) fn from_register_number(reg_no: usize, var_type: VarType) -> Self {
+        MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no, var_type }))
+    }
+
+    pub(super) fn from_stack_addr(stack_addr: usize, var_type: VarType) -> Self {
+        MipsOperand::VariableMapping(VariableMapping::StackMapping(StackMapping { relative_addr: stack_addr, var_type }))
     }
 
     pub(super) fn from_string_literal(str: String) -> Self {
@@ -196,6 +234,65 @@ impl MipsOperand {
 
     pub(super) fn from_number_literal(num: f32) -> Self {
         MipsOperand::Literal(format!("{}", num))
+    }
+
+    pub(super) fn get_var_type(&self) -> VarType {
+        match self {
+            MipsOperand::VariableMapping(var) => {
+                match var {
+                    VariableMapping::RegisterMapping(reg) => reg.var_type.clone(),
+                    VariableMapping::StackMapping(sta) => sta.var_type.clone(),
+                    VariableMapping::StackPointer | VariableMapping::ReturnAddress => VarType::Int,
+                }
+            },
+            MipsOperand::Literal(lit) => if lit.contains('.') { VarType::Float } else {VarType::Int },
+        }
+    }
+
+    pub(super) fn combined_var_type(&self, other: &MipsOperand) -> VarType {
+        let other_var_type = other.get_var_type();
+        if other_var_type == VarType::Float || self.get_var_type() == VarType::Float {
+            return VarType::Float;
+        }
+        return VarType::Int;
+    }
+
+    pub(super) fn implicit_conversion(&self, var_type: VarType) -> (MipsOperand, Vec<MipsOperation>) {
+        let current = self.get_var_type();
+        match self {
+            MipsOperand::VariableMapping(var) => {
+                match var {
+                    VariableMapping::RegisterMapping(reg) => {
+                        let new_op = MipsOperand::from_register_number(reg.reg_no, var_type.clone());
+                        if var_type == VarType::Int && current != VarType::Int {
+                            return (new_op.clone(), Vec::from([MipsOperation::Floor(Floor { store: var.clone(), op_1: new_op.clone()})]));
+                        }
+                        else {
+                            return (new_op, Vec::new());
+                        }
+                        
+                    },
+                    VariableMapping::StackMapping(sta) => return (MipsOperand::from_stack_addr(sta.relative_addr, var_type), Vec::new()),
+                    _ => (self.clone(), Vec::new()),
+                }
+            },
+            MipsOperand::Literal(lit) => { 
+                if var_type == VarType::Int {
+                    if let Some(prefix) = lit.split('.').next() {
+                        (MipsOperand::from_string_literal(prefix.to_string()), Vec::new()) 
+                    } else {
+                        panic!()
+                    }
+                } else {
+                    if !lit.contains('.') {
+                        (MipsOperand::from_string_literal(lit.clone() + ".0"), Vec::new())
+                    }
+                    else {
+                        (self.clone(), Vec::new())
+                    }
+                }
+            },
+        }
     }
 }
 
@@ -206,6 +303,7 @@ pub(super) enum MipsOperation {
     Sub(Sub),
     Mul(Mul),
     Div(Div),
+    Floor(Floor),
     Mod(Mod),
     And(And),
     Or(Or),
