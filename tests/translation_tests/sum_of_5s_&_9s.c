@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 int main() {
     int x = 0;
     for (int i = 1; i <= 100 / 5; i += 1) {
@@ -9,4 +11,5 @@ int main() {
     for (int i = 1; i <= 100 / 45; i += 1) {
         x -= (45 * i);
     }
+    printf("%d\n", x);
 }

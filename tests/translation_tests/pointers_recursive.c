@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 int inc(int* x) {
     if (*x > 10) {
         return 0;
@@ -9,4 +11,5 @@ int inc(int* x) {
 int main() {
     int x = 0;
     inc(&x);
+    printf("%d\n", x);
 }

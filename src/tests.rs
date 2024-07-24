@@ -1,4 +1,6 @@
 use std::fs;
+use std::process::Command;
+use std::env::current_dir;
 
 use crate::compiler::parser;
 use crate::compiler::scanner;
@@ -35,30 +37,66 @@ pub mod translator_tests {
 
     #[test]
     pub fn fibonacci() {
-        test_translation(String::from("fibonacci_recursive"), String::from("translation_tests"), 144.0)
+        test_translation(String::from("fibonacci_recursive"), String::from("translation_tests"), 1);
     }
 
     #[test]
     pub fn sum_of_5s() {
-        test_translation(String::from("sum_of_5s_&_9s"), String::from("translation_tests"), 1509.0);
+        test_translation(String::from("sum_of_5s_&_9s"), String::from("translation_tests"), 1);
     }
 
     #[test]
     pub fn weird_loops() {
-        test_translation(String::from("weird_loops"), String::from("translation_tests"), -41.0);
+        test_translation(String::from("weird_loops"), String::from("translation_tests"), 1);
     }
 
     #[test]
     pub fn pointers_recursive() {
-        test_translation(String::from("pointers_recursive"), String::from("translation_tests"), 11.0);
+        test_translation(String::from("pointers_recursive"), String::from("translation_tests"), 1);
     }
+
+    #[test]
+    pub fn implicit_type_conversions() {
+        test_translation(String::from("implicit_type_conversion"), String::from("translation_tests"), 3);
+    }
+
+    #[test]
+    pub fn explicit_type_conversions() {
+        test_translation(String::from("explicit_type_conversion"), String::from("translation_tests"), 1);
+    }
+
 }
 
 #[allow(dead_code)]
-pub fn test_translation(test_name: String, test_dir: String, expected: f32) {
+pub fn test_translation(test_name: String, test_dir: String, result_count: usize) {
     let filename = format!("tests/{}/{}.c", test_dir, test_name);
-    let result = translate_and_emulate(filename);
-    assert_eq!(result, expected);
+    let result = translate_and_emulate(filename.clone(), result_count);
+
+    let binary_string = format!("tests/{}/bin/{}", test_dir, test_name);
+    let compiler_output = Command::new("gcc")
+                                                                            .arg(filename.clone())
+                                                                            .arg("-o")
+                                                                            .arg(binary_string.clone())
+                                                                            .status();
+
+    match compiler_output {
+        Ok(e) => assert!(e.success()),
+        Err(e) => assert!(false, "{}\n", e.to_string())
+    }
+
+    let execution_output = Command::new(format!("./{}", binary_string)).output();
+
+    match execution_output {
+        Ok(out) => {
+            let output_string = String::from_utf8_lossy(&out.stdout);
+            let output_lines = output_string.split("\n");
+            for (res, truth_line) in result.iter().zip(output_lines) {
+                let truth_value: f32 = truth_line.parse().unwrap();
+                assert_eq!(*res, truth_value);
+            }
+        }
+        Err(e) => assert!(false, "{}\n", e.to_string())
+    }
 }
 
 #[allow(dead_code)]

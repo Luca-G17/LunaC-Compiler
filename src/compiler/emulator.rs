@@ -164,6 +164,11 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
         MipsOperation::Return(_) => {
             line_no = operand_read(registers, sp, ra, &MipsOperand::VariableMapping(VariableMapping::ReturnAddress)) as usize - 1;
         },
+        MipsOperation::Floor(o) => {
+            let left: f32 = operand_read(registers, sp, ra, &o.op_1) as f32;
+            let result = left.floor();
+            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(result));
+        },
     }
     return line_no
 }
@@ -276,7 +281,7 @@ fn print_stack(stack: &[f32], print_size: usize) {
     print_stage(stack_str, String::from("STACK STATE:"));
 }
 
-pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usize) -> f32 {
+pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usize, ret_count: usize) -> Vec<f32> {
     let mut registers = [0.0; NUM_REGISTERS];
     let mut stack = [0.0; STACK_SIZE];
     let mut sp = 0;
@@ -291,5 +296,5 @@ pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usiz
     }
     
     print_stack(&stack, stack_print_size);
-    return stack[1];
+    return stack[1..ret_count].to_vec();
 }

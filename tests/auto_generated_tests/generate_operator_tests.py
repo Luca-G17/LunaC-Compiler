@@ -19,13 +19,16 @@ def generate_test(operator, indent_depth=1):
     test_name = f"{operator['string_name']}_auto"
     rust_str = f"{i}#[test]\n"
     rust_str += f"{i}pub fn {test_name}() {{\n"
-    rust_str += f'{indents(indent_depth + 1)}test_translation(String::from("{test_name}"), String::from("auto_generated_tests"),{operator["result"]});\n'
+    rust_str += f'{indents(indent_depth + 1)}test_translation(String::from("{test_name}"), String::from("auto_generated_tests"), 1);\n'
     rust_str += f"{i}}}\n"
 
-    c_test = f"int main() {{\n"
+    c_test = ""
+    c_test += f"#include <stdio.h>\n"
+    c_test += f"int main() {{\n"
     c_test += f"{i}int x = {operator['init']};\n"
     c_test += f"{i}x {operator['op']}= {operator['operand']};\n"
     c_test += f"{i}x = x {operator['op']} {operator['operand']};\n"
+    c_test += f"{i}printf(\"%d\\n\", x);\n"
     c_test += f"}}\n"
 
     with open(f'tests/auto_generated_tests/{test_name}.c', 'w') as cfile: 
