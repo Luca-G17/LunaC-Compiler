@@ -1,1 +1,1 @@
-# Stationeers MIPS C Compiler
+# Stationeers MIPS-C Compiler
