@@ -281,22 +281,23 @@ fn unary_operand_types(operator: &Token, operand: MipsOperand) -> (MipsOperand, 
 }
 
 
-fn mips_unary_operation(operator: &Token, var_ptr: usize, operand: MipsOperand) -> (Vec<MipsOperation>, VarType) {
-    let (operand, store_type, mut ops) = unary_operand_types(operator, operand); 
+fn mips_unary_operation(operator: &Token, var_ptr: usize, operand: &mut MipsOperand) -> (Vec<MipsOperation>, VarType) {
+    let store_type;
+    let mut ops;
+    (*operand, store_type, ops) = unary_operand_types(operator, operand.clone()); 
     match operator.tok_type {
         TokenType::Minus => ops.push(MipsOperation::Mul(Mul {
             store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr, var_type: store_type.clone() }),
-            op_1: operand,
+            op_1: operand.clone(),
             op_2: MipsOperand::Literal(String::from("-1"))
         })),
-        TokenType::Bang | TokenType::Tilde => ops.push(MipsOperation::Not(Not { store: VariableMapping::from_register_number(var_ptr, store_type.clone()), op_1: operand })),
+        TokenType::Bang | TokenType::Tilde => ops.push(MipsOperation::Not(Not { store: VariableMapping::from_register_number(var_ptr, store_type.clone()), op_1: operand.clone() })),
         TokenType::Star => {
             // Dereference read
             ops.push(MipsOperation::Move(Move { store: VariableMapping::StackPointer, op_1: operand.clone() }));
-            ops.push(MipsOperation::Peek(Peek { op_1: operand })); // TODO: potentially change this to load into a new register0
+            ops.push(MipsOperation::Peek(Peek { op_1: operand.clone() })); // TODO: potentially change this to load into a new register0
         },
-        TokenType::Int => (),
-        TokenType::Float => (),
+        TokenType::Int | TokenType::Float => {},
         TokenType::BitwiseAnd => (),
         _ => panic!("Internal compiler error - not a unary operation")
     }
@@ -312,7 +313,7 @@ fn mips_unary_operation(operator: &Token, var_ptr: usize, operand: MipsOperand) 
     A grouping operation will always require a tmp register and therefore a var_ptr
     increment.
 */
-fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) -> Result<(Vec<MipsOperation>, usize, VarType), Error> {
+fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) -> Result<(Vec<MipsOperation>, usize, VarType, Option<String>), Error> {
     match ast {
         Expr::Binary(e) => {
             let mut ops = Vec::new();
@@ -327,10 +328,15 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                 ops.extend(stack_ops);
             }
             else {
-                let (left_translation, _, left_type) = translate_ast(&e.left, env.clone(), var_ptr)?;
+                let (left_translation, _, left_type, literal_value) = translate_ast(&e.left, env.clone(), var_ptr)?;
                 left_store_ptr = var_ptr;
                 ops.extend(left_translation);
-                left_operand = MipsOperand::from_register_number(var_ptr, left_type);
+                
+                left_operand = match literal_value {
+                    Some(l) => MipsOperand::from_string_literal(l),
+                    None => MipsOperand::from_register_number(var_ptr, left_type) 
+                }
+
             }
 
             // If the operator is a logical or: 
@@ -353,9 +359,13 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                 ops.extend(stack_ops); 
             }
             else {
-                let (right_translation, _, right_type) = translate_ast(&e.right, env.clone(), var_ptr + 1)?;
+                let (right_translation, _, right_type, literal_value) = translate_ast(&e.right, env.clone(), var_ptr + 1)?;
                 ops.extend(right_translation);
-                right_operand = MipsOperand::from_register_number(var_ptr + 1, right_type);
+
+                right_operand = match literal_value {
+                    Some(l) => MipsOperand::from_string_literal(l),
+                    None => MipsOperand::from_register_number(var_ptr + 1, right_type) 
+                }
             }
 
             let (op_ops, store_type) = mips_binary_operation(&e.operator, left_store_ptr, left_operand, right_operand);
@@ -364,14 +374,16 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
             if e.operator.tok_type == TokenType::Or {
                 ops.push(MipsOperation::Label(Label { label_name: format!("%{}", dest_label - 1) }));
             }
-            return Ok((ops, var_ptr, store_type));
+            return Ok((ops, var_ptr, store_type, None));
         },
         Expr::Unary(e) => {
             let mut var_ptr = var_ptr;
             let mut ops = Vec::new();
             let referencing = e.operator.tok_type == TokenType::BitwiseAnd;
             let oper_opt = get_atomic_operand(&e.right, env.clone(), var_ptr, referencing);
-            let operand;
+            let mut operand;
+            let returning_literal_opt;
+
             if let Some(atomic_opt) = oper_opt { 
                 let stack_ops;
                 (operand, stack_ops, var_ptr) = atomic_opt?;
@@ -380,14 +392,15 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
             else {
                 let translation;
                 let res_type;
-                (translation, var_ptr, res_type) = translate_ast(&e.right, env.clone(), var_ptr)?;
+                (translation, var_ptr, res_type, _) = translate_ast(&e.right, env.clone(), var_ptr)?;
                 ops = translation;
                 operand = MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no: var_ptr, var_type: res_type }));
             }
-            let (op_ops, store_type) = mips_unary_operation(&e.operator, var_ptr, operand); 
+            let (op_ops, store_type) = mips_unary_operation(&e.operator, var_ptr, &mut operand); 
+            returning_literal_opt = if let MipsOperand::Literal(l) = operand { Some(l.clone()) } else { None };
             ops.extend(op_ops);
 
-            return Ok((ops, var_ptr, store_type));
+            return Ok((ops, var_ptr, store_type, returning_literal_opt));
         },
         Expr::Literal(e)  => {
             let val_str;
@@ -395,18 +408,19 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                 Some(v) => val_str = v.lexeme.clone(),
                 None => val_str = String::from("1")
             }
-            let value = MipsOperand::Literal(val_str);
+            let value = MipsOperand::Literal(val_str.clone());
             let store_type = value.get_var_type();
             let store = VariableMapping::from_register_number(var_ptr, store_type.clone());
             return Ok((
                 Vec::from([ MipsOperation::Move(Move { store, op_1: value })]),
                 var_ptr,
-                store_type
+                store_type,
+                Some(val_str)
             ));
         }
         Expr::Variable(var) => {
             let (operand, ops, reg_ptr) = variable_expr_to_mips_access(var, env, var_ptr, false)?;
-            return Ok((ops, reg_ptr, operand.get_var_type()))
+            return Ok((ops, reg_ptr, operand.get_var_type(), None))
         },
         Expr::Call(call) => {
             // Call inside of expression
@@ -428,7 +442,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                 ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", stack_addr + 2)) }));
                 ops.push(MipsOperation::Peek(Peek { op_1: MipsOperand::from_register_number(i + 1, VarType::Float)}));
             }
-            return Ok((ops, var_ptr, ret_type))
+            return Ok((ops, var_ptr, ret_type, None))
         },
         Expr::Grouping(e) => translate_ast(&e.expression, env.clone(), var_ptr),
         Expr::StoredValueExpr(sto) => { 
@@ -440,7 +454,8 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                     op_1
                 })]),
                 var_ptr,
-                store_type
+                store_type,
+                None
             ))
         },
     }
@@ -534,7 +549,7 @@ fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env
 
             for (i, expr) in func_call.params.iter().enumerate() {
                 if let Some(Stmt::Variable(var)) = func_stmt.params.get(i) {
-                    let (func_param_ops, _, param_type) = translate_ast(expr, env.clone(), param_reg_ptr)?;
+                    let (func_param_ops, _, param_type, _) = translate_ast(expr, env.clone(), param_reg_ptr)?;
                     ops.extend(func_param_ops);
                     let (_, _, implicit_cast_ops) = unary_operand_types(var.var_type, MipsOperand::from_register_number(param_reg_ptr, param_type));
                     ops.extend(implicit_cast_ops);
@@ -631,7 +646,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
                 if i != 0 {
                     ops.push(MipsOperation::Label(Label { label_name: format!("%{}", current_label_ptr) }))
                 }
-                let (condition_ops, _, _) = translate_ast(condition, env.clone(), reg_ptr)?;
+                let (condition_ops, _, _, _) = translate_ast(condition, env.clone(), reg_ptr)?;
                 ops.extend(condition_ops);
                 
                 // Branch if condition is not true 
@@ -663,7 +678,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             let mut ops = Vec::new();
             let reg_ptr = env.borrow().get_reg_ptr();
             if let Some(_) = &env.borrow().parent {
-                let (ret_expr_ops, _, ret_type) = translate_ast(&ret.value, env.clone(), reg_ptr)?;
+                let (ret_expr_ops, _, ret_type, _) = translate_ast(&ret.value, env.clone(), reg_ptr)?;
                 ops.extend(ret_expr_ops);
                 let (_, _, implicit_cast_ops) = unary_operand_types(&ret.ret_type, MipsOperand::from_register_number(reg_ptr, ret_type));
                 ops.extend(implicit_cast_ops);
@@ -682,7 +697,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             let reg_ptr = env.borrow().get_reg_ptr();
             match &var.initialiser {
                 Some(init) => {
-                    let (init_ops, _, rvalue_type) = translate_ast(&init, env.clone(), reg_ptr)?;
+                    let (init_ops, _, rvalue_type, _) = translate_ast(&init, env.clone(), reg_ptr)?;
                     var_ops.extend(init_ops);
                     let (_, _, implicit_cast_ops) = unary_operand_types(var.var_type, MipsOperand::from_register_number(reg_ptr, rvalue_type));
                     var_ops.extend(implicit_cast_ops);
@@ -715,7 +730,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             ops.push(MipsOperation::Label(Label { label_name: condition_label}));
 
             let reg_ptr = env.borrow().get_reg_ptr();
-            let (cond_ops, _, _) = translate_ast(&wh.condition, env.clone(), reg_ptr)?;
+            let (cond_ops, _, _, _) = translate_ast(&wh.condition, env.clone(), reg_ptr)?;
             ops.extend(cond_ops);
             ops.push(MipsOperation::Beq(Beq { 
                 op_1: MipsOperand::from_register_number(reg_ptr, VarType::Int),
@@ -749,7 +764,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
             let condition_label = format!("%{}", env.borrow_mut().add_label());
             ops.push(MipsOperation::Label(Label {label_name: condition_label}));
             let reg_ptr = env.borrow().get_reg_ptr();
-            let (cond_ops, _, _) = translate_ast(&for_stmt.condition, env.clone(), reg_ptr)?;
+            let (cond_ops, _, _, _) = translate_ast(&for_stmt.condition, env.clone(), reg_ptr)?;
             ops.extend(cond_ops);
             ops.push(MipsOperation::Beq(Beq { 
                 op_1: MipsOperand::from_register_number(reg_ptr, VarType::Int),
@@ -767,7 +782,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
                 return Err(Error)
             }
 
-            let (mut ops, _, _) = translate_ast(&assign.binding, env.clone(), return_register)?;
+            let (mut ops, _, _, _) = translate_ast(&assign.binding, env.clone(), return_register)?;
             ops.extend(write_to_stack(assign.var_name.lexeme.clone(), assign.reference_depth, env.clone(), return_register));
             return Ok(ops)
         },

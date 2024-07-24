@@ -821,11 +821,11 @@ fn unary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pars
     if current_tok.tok_type == TokenType::LeftParen {
         let next_tok = peek(current, tokens);
         if next_tok.tok_type == TokenType::Int || next_tok.tok_type == TokenType::Float {
+            let cast_type = next_tok;
             (_, current) = consume_token(TokenType::LeftParen, String::from(""), current, tokens);
             (_, current) = consume_token(next_tok.tok_type, String::from(""), current, tokens);
             (_, current) = consume_token(TokenType::RightParen, String::from("Expect ')' after cast type."), current, tokens);
             let right: Box<Expr>;
-            let cast_type = previous(current, tokens);
             (right, current) = unary(current, tokens)?;
             let expr = Box::new(Expr::Unary(UnaryExpr { operator: cast_type.clone(), right }));
             return Ok((expr, current));
