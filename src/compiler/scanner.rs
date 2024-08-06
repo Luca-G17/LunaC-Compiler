@@ -11,6 +11,8 @@ pub enum TokenType {
     RightParen,
     LeftBrace,
     RightBrace,
+    LeftSquareBrace,
+    RightSquareBrace,
     Comma, 
     Dot,
     Minus, Plus, Semicolon, Slash, Star, Percent,
@@ -47,7 +49,6 @@ pub enum TokenType {
     While,
     Int, Float, Double, Char, Signed, Long, Printf,
 
-    Hash,
     Eof,
 }
 
@@ -61,6 +62,7 @@ pub(super) fn tok_type_string(tok_type: TokenType) -> String {
         TokenType::Slash => String::from("/"),
         TokenType::Percent => String::from("%"),
         TokenType::BitwiseXor => String::from("^"),
+        TokenType::RightShiftEqual => String::from("[]"),
         _ => String::from("")
     }
 }
@@ -76,6 +78,11 @@ pub struct Token {
 impl Token {
     fn to_string(&self) -> String {
         return format!("[{}]: {} {}", self.line_no, self.literal, self.lexeme);
+    }
+
+    pub(super) fn generate_token(tok_type: TokenType, line_no: usize) -> Token {
+        let tok_str = tok_type_string(tok_type.clone());
+        Token { tok_type, lexeme: tok_str.clone(), literal: tok_str.clone(), line_no }
     }
 
     pub(super) fn is_bitwise_operator(&self) -> bool {
@@ -118,6 +125,8 @@ impl Scanner {
             ')' => self.add_token(TokenType::RightParen, c.to_string()),
             '{' => self.add_token(TokenType::LeftBrace, c.to_string()),
             '}' => self.add_token(TokenType::RightBrace, c.to_string()),
+            '[' => self.add_token(TokenType::LeftSquareBrace, c.to_string()),
+            ']' => self.add_token(TokenType::RightSquareBrace, c.to_string()),
             ',' => self.add_token(TokenType::Comma, c.to_string()),
             '.' => self.add_token(TokenType::Dot, c.to_string()),
             ';' => self.add_token(TokenType::Semicolon, c.to_string()),

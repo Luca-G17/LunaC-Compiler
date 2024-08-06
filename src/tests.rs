@@ -1,6 +1,5 @@
 use std::fs;
 use std::process::Command;
-use std::env::current_dir;
 
 use crate::compiler::parser;
 use crate::compiler::scanner;

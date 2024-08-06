@@ -3,6 +3,6 @@ int main() {
     int y = 10;
     int z = 0;
     while ((< (x) 10)) {
-        z = (+ (z) 1);
+        (z) = (+ (z) 1);
     }
 }

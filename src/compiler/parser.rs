@@ -33,7 +33,6 @@ pub struct UnaryExpr<'a> {
 
 #[derive(Clone)]
 pub struct VariableExpr<'a> {
-    pub(super) reference_depth: i32,
     pub(super) name: &'a Token,
 }
 
@@ -50,7 +49,7 @@ pub enum Expr<'a> {
     Literal(LiteralExpr<'a>),
     Unary(UnaryExpr<'a>),
     Variable(VariableExpr<'a>),
-    StoredValueExpr(StoredValueExpr)
+    StoredValueExpr(StoredValueExpr),
 }
 
 pub struct BlockStmt<'a> {
@@ -86,9 +85,9 @@ pub struct VarStmt<'a> {
 }
 
 pub struct AssignStmt<'a> {
-    pub(super) var_name: &'a Token,
+    pub(super) lvalue_expr: Box<Expr<'a>>,
     pub(super) binding: Box<Expr<'a>>,
-    pub(super) reference_depth: i32
+    pub(super) equal_tok: &'a Token
 }
 
 pub struct WhileStmt<'a> {
@@ -109,7 +108,6 @@ pub struct FuncCallStmt<'a> {
     pub(super) params: Vec<Expr<'a>>,
 }
 
-
 pub enum Stmt<'a> {
     Block(BlockStmt<'a>),
     Expression(ExprStmt<'a>),
@@ -121,6 +119,46 @@ pub enum Stmt<'a> {
     For(ForStmt<'a>),
     Assign(AssignStmt<'a>),
     FunctionCall(FuncCallStmt<'a>)
+}
+
+impl<'a> Expr<'a> {
+    pub(super) fn lvalue_is_derefed(&'a self) -> Option<&'a Expr> {
+        match self {
+            Expr::Unary(e) => if e.operator.tok_type == TokenType::Star { Some(&e.right) } else { None },
+            Expr::Grouping(e) => e.expression.lvalue_is_derefed(),
+            _ => None
+        }
+    }
+
+    // This function aims to match the following definition for lvalue expressions:
+    // *(lvalue + expr) | *(lvalue - expr) | *(expr + lvalue) | lvalue | *lvalue | *(lvalue) | var_name
+    fn match_l_value(&self, derefed: bool) -> bool {
+        match self {
+            Expr::Binary(e) => {
+                if !derefed {
+                    return false;
+                }
+                let left_is_lvalue = e.left.match_l_value(false);
+                let operator = e.operator.tok_type;
+                if left_is_lvalue && (operator == TokenType::Plus || operator == TokenType::Minus) {
+                    return true; // *(lvalue + expr) | *(lvalue - expr)
+                }
+                else if !left_is_lvalue && operator == TokenType::Plus {
+                    return e.right.match_l_value(false);
+                }
+                return false;
+            },
+            Expr::Call(_) => false,
+            Expr::Grouping(e) => e.expression.match_l_value(derefed),
+            Expr::Literal(_) => false,
+            Expr::Unary(e) => {
+                let derefed = e.operator.tok_type == TokenType::Star;
+                e.right.match_l_value(derefed)
+            },
+            Expr::Variable(_) => true,
+            Expr::StoredValueExpr(_) => false,
+        }
+    }
 }
 
 pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
@@ -221,7 +259,7 @@ pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
             }
             return str;
         },
-        Stmt::Assign(s) => String::from(format!("{} = {};\n", s.var_name.lexeme, ast_pretty_printer(s.binding.clone()))),
+        Stmt::Assign(s) => String::from(format!("{} = {};\n", ast_pretty_printer(s.lvalue_expr.clone()), ast_pretty_printer(s.binding.clone()))),
         Stmt::Return(s) => String::from(format!("return {};\n", ast_pretty_printer(s.value.clone()))),
         Stmt::FunctionCall(s) => {
             let mut str = format!("{}(", s.name.lexeme);
@@ -509,17 +547,18 @@ fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifie
     }), current));
 } 
 
+
+
 fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: bool) -> Result<(Stmt, usize), ParserError> {
     let mut current = current;
+    let lhs_expr;
+    (lhs_expr, current) = expression(current - 1, tokens)?;
 
-    let mut prev = previous(current, tokens);
-    let mut ref_depth = 0;
-    while prev.tok_type == TokenType::Star {
-        prev = next_token(&mut current, tokens);
-        ref_depth += 1;
+    if !lhs_expr.match_l_value(false) {
+        parsing_error(previous(current, tokens), String::from("Expected lvalue expression"));
+        return Err(ParserError);
     }
-    let identifier = prev;
-
+    
     if match_token(&mut current, tokens, &Vec::from([TokenType::Equal, TokenType::AndEqual, TokenType::OrEqual, TokenType::XorEqual, TokenType::PlusEqual, TokenType::StarEqual, TokenType::MinusEqual, TokenType::SlashEqual, TokenType::PercentEqual])) {
         let assignment_type = previous(current, tokens);
         if let Ok((mut binding, current)) = expression_statement(current, tokens) {
@@ -541,34 +580,25 @@ fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: b
             };
 
             if assignment_type.tok_type != TokenType::Equal {
-                let deref_str = tok_type_string(TokenType::Star);
-                let deref_token = Token { tok_type: TokenType::Star, lexeme: deref_str.clone(), literal: deref_str.clone(), line_no: assignment_type.line_no };
-
-                let mut left_variable_expr = Box::new(Expr::Variable(VariableExpr { name: identifier, reference_depth: ref_depth }));
-                for _ in 0..ref_depth {
-                    left_variable_expr = Box::new(Expr::Unary(UnaryExpr { operator: deref_token.clone(), right: left_variable_expr }))
-                }
-
                 let op_str = tok_type_string(assigment_operator);
                 let operator_token = Token { tok_type: assigment_operator, lexeme: op_str.clone(), literal: op_str.clone(), line_no: assignment_type.line_no };
                 binding = Box::new(Expr::Binary(BinaryExpr { 
-                    left: left_variable_expr,
+                    left: lhs_expr.clone(),
                     right: binding,
                     operator: operator_token }
                 ));
             }
 
             return Ok((Stmt::Assign(AssignStmt {
-                var_name: identifier,
+                lvalue_expr: lhs_expr,
                 binding,
-                reference_depth: ref_depth
+                equal_tok: assignment_type 
             }), current));
         }
         else {
             return Err(ParserError);
         }
     }
-    else if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) { return function_call_statement(current, tokens, identifier, false); }
     return Err(ParserError)
 }
 
@@ -577,8 +607,14 @@ fn generate_statement<'a>(current: usize, tokens: &'a Vec<Token>, inline_stateme
     if match_token(&mut current, tokens, &Vec::from([TokenType::While])) { return while_statement(current, tokens, &ret_type); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::For])) { return for_statement(current, tokens, &ret_type); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::If])) { return if_statement(current, tokens, &ret_type); }
-    else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier, TokenType::Star])) {
-        return assignment_statement(current, tokens, inline_statement);
+    else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier, TokenType::Star, TokenType::LeftParen])) {
+        let identifier = previous(current, tokens);
+        if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
+            return function_call_statement(current, tokens, identifier, false);
+        }
+        else {
+            return assignment_statement(current, tokens, inline_statement);
+        }
     }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::Return])) {
         if let Ok((binding, current)) = expression_statement(current, tokens) {
@@ -758,6 +794,7 @@ fn parsing_error(token: &Token, message: String) {
     }
 }
 
+
 fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
     let mut current = current;
     
@@ -782,11 +819,29 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
                 return Err(ParserError);
             }
         }
-        let ret_expr = Box::new(Expr::Variable(VariableExpr {
+
+        let mut var_expr = Box::new(Expr::Variable(VariableExpr {
             name: previous(current, tokens),
-            reference_depth: 0
         }));
-        return Ok((ret_expr, current));
+
+        // Array subscripting
+        while match_token(&mut current, tokens, &Vec::from([TokenType::LeftSquareBrace])) {
+            let (index_expr, _) = expression(current, tokens)?;
+            
+            consume_token(TokenType::RightSquareBrace, String::from("Expect ']' after array subscript."), current, tokens);   
+            let addition_expr = Box::new(Expr::Binary(BinaryExpr { 
+                left: var_expr, 
+                right: index_expr, 
+                operator: Token::generate_token(TokenType::Plus, identifier.line_no)
+            }));
+            
+            var_expr = Box::new(Expr::Unary(UnaryExpr { 
+                operator: Token::generate_token(TokenType::Star, identifier.line_no),
+                right: addition_expr 
+            }));
+        }
+
+        return Ok((var_expr, current));
     }
 
     if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
@@ -805,6 +860,28 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
 
 fn unary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
     let mut current = current;
+    let current_tok = peek(current, tokens);
+
+    if current_tok.tok_type == TokenType::LeftParen {
+        let next_tok = match next(current, tokens) {
+            Some(t) => t,
+            None => { 
+                parsing_error(current_tok, String::from("Expect expression after '('.")); 
+                return Err(ParserError)
+            }
+        };
+
+        if next_tok.tok_type == TokenType::Int || next_tok.tok_type == TokenType::Float {
+            let cast_type = next_tok;
+            (_, current) = consume_token(TokenType::LeftParen, String::from(""), current, tokens);
+            (_, current) = consume_token(next_tok.tok_type, String::from(""), current, tokens);
+            (_, current) = consume_token(TokenType::RightParen, String::from("Expect ')' after cast type."), current, tokens);
+            let right: Box<Expr>;
+            (right, current) = unary(current, tokens)?;
+            let expr = Box::new(Expr::Unary(UnaryExpr { operator: cast_type.clone(), right }));
+            return Ok((expr, current));
+        }
+    }
 
     while match_token(&mut current, tokens, &Vec::from([TokenType::Bang, TokenType::Minus, TokenType::Star, TokenType::Tilde, TokenType::BitwiseAnd, TokenType::Star])) {
         let right: Box<Expr>;
@@ -817,20 +894,6 @@ fn unary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pars
         return Ok((expr, current));
     }
 
-    let current_tok = previous(current, tokens);
-    if current_tok.tok_type == TokenType::LeftParen {
-        let next_tok = peek(current, tokens);
-        if next_tok.tok_type == TokenType::Int || next_tok.tok_type == TokenType::Float {
-            let cast_type = next_tok;
-            (_, current) = consume_token(TokenType::LeftParen, String::from(""), current, tokens);
-            (_, current) = consume_token(next_tok.tok_type, String::from(""), current, tokens);
-            (_, current) = consume_token(TokenType::RightParen, String::from("Expect ')' after cast type."), current, tokens);
-            let right: Box<Expr>;
-            (right, current) = unary(current, tokens)?;
-            let expr = Box::new(Expr::Unary(UnaryExpr { operator: cast_type.clone(), right }));
-            return Ok((expr, current));
-        }
-    }
     return Ok(primary(current, tokens)?);
 }
 
@@ -906,6 +969,10 @@ fn previous(current: usize, tokens: &Vec<Token>) -> &Token {
         Some(token) => token,
         None => panic!("What the hell man!")
     }    
+}
+
+fn next(current: usize, tokens: &Vec<Token>) -> Option<&Token> {
+    return tokens.get(current + 1);
 }
 
 fn next_token<'a>(current: &mut usize, tokens: &'a Vec<Token>) -> &'a Token {

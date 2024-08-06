@@ -336,7 +336,6 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize) 
                     Some(l) => MipsOperand::from_string_literal(l),
                     None => MipsOperand::from_register_number(var_ptr, left_type) 
                 }
-
             }
 
             // If the operator is a logical or: 
@@ -505,28 +504,13 @@ fn get_atomic_operand<'a>(expr: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, reg_ptr: u
     }
 }
 
-fn write_to_stack(var_name: String, reference_depth: i32, env: Rc<RefCell<Env>>, result_reg: usize) -> Vec<MipsOperation> {
+fn write_to_variable(var_name: String, env: Rc<RefCell<Env>>, result_reg: usize) -> Vec<MipsOperation> {
     let stack_addr_opt = env.borrow().get_variable_index(var_name);
     if let Some(stack_addr) = stack_addr_opt {
-        if reference_depth == 0 {
-            return Vec::from([
-                MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", stack_addr + 1)) }),
-                MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(result_reg, VarType::Int)})
-            ])
-        } 
-        else {
-            let mut ops = Vec::new();
-            let tmp_store_reg = MipsOperand::from_register_number(result_reg + 1, VarType::Int); // +1 because we don't want to overwrite the result we are writing to the stack
-            ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", stack_addr + 2)) }));
-            for _ in 0..reference_depth {
-                // load address from stack
-                // move address into stack pointer
-                ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
-                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: tmp_store_reg.clone(), op_2: MipsOperand::from_number_literal(-1.0) }));
-            }
-            ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(result_reg, VarType::Int) }));
-            return ops;
-        }
+        return Vec::from([
+            MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", stack_addr + 1)) }),
+            MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(result_reg, VarType::Int)})
+        ])
     }
     panic!("Internal Compiler Error - Cannot find variable in the environment mappings")
 }
@@ -581,7 +565,7 @@ fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env
     return Ok((ops, ret_type));
 }
 
-fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsOperation>, Error> {
+fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsOperation>, Error> {
     match stmt {
         Stmt::Block(block) => {
             let mut ops = Vec::new();
@@ -614,7 +598,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
                 if let Stmt::Variable(p) = param {
                     let var_type = VarType::from_token(p.var_type)?;
                     func_env.borrow_mut().add_var(&p.var_name.lexeme.clone(), var_type);
-                    ops.extend(write_to_stack(p.var_name.lexeme.clone(), 0, func_env.clone(), param_reg_ptr + i));
+                    ops.extend(write_to_variable(p.var_name.lexeme.clone(), func_env.clone(), param_reg_ptr + i));
                 }
             }
 
@@ -701,7 +685,7 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
                     var_ops.extend(init_ops);
                     let (_, _, implicit_cast_ops) = unary_operand_types(var.var_type, MipsOperand::from_register_number(reg_ptr, rvalue_type));
                     var_ops.extend(implicit_cast_ops);
-                    var_ops.extend(write_to_stack(var_name.clone(), 0, env.clone(), env.borrow().get_reg_ptr()));
+                    var_ops.extend(write_to_variable(var_name.clone(), env.clone(), env.borrow().get_reg_ptr()));
                 }
                 None => {}
             }
@@ -776,14 +760,31 @@ fn translate<'a>(stmt: &Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsO
         },
         Stmt::Assign(assign) => {
             let return_register = env.borrow().get_reg_ptr();
-            let stack_addr_opt: Option<usize> = env.borrow().get_variable_index(assign.var_name.lexeme.clone());
-            if None == stack_addr_opt {
-                translating_error(assign.var_name, String::from("Variable does not exist in the current scope"));
-                return Err(Error)
-            }
+            // Check for variable in scope inside the ast translation
 
-            let (mut ops, _, _, _) = translate_ast(&assign.binding, env.clone(), return_register)?;
-            ops.extend(write_to_stack(assign.var_name.lexeme.clone(), assign.reference_depth, env.clone(), return_register));
+            let (mut ops, _, var_type, _) = translate_ast(&assign.binding, env.clone(), return_register)?;
+            match assign.lvalue_expr.lvalue_is_derefed() {
+                Some(lvalue_expr) => {
+                    // translate lvalue expression and store right expression result in defrefed location
+                    // register r(return_register + 1) contains the stack address to store the rhs result in.
+                    let (store_ops, _, _, _) = translate_ast(lvalue_expr, env, return_register + 1)?; 
+                    ops.extend(store_ops);
+                    ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(return_register + 1, VarType::Int), op_2: MipsOperand::from_number_literal(-1.0) }));
+                    ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(return_register, var_type)}))
+                }
+                None => {
+                   // lvalue must be a variable 
+                    match *assign.lvalue_expr {
+                        Expr::Variable(ref v) => {
+                            ops.extend(write_to_variable(v.name.lexeme.clone(), env.clone(), return_register))
+                        },
+                        _ => {
+                            translating_error(assign.equal_tok, String::from("Expected a modifiable lvalue."));
+                            return Err(Error)
+                        }
+                    }
+                }
+            }
             return Ok(ops)
         },
         Stmt::FunctionCall(func_call) => {
