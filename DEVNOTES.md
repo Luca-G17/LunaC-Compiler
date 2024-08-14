@@ -122,6 +122,10 @@ This includes expressions which resolve to pointers to variables
 
 Where x may be an lvalue
 
+#### Random Notes
+ptr + 1 => ptr + sizeof(element pointed to) * 1
+*ptr = ptr = address of first element in array
+
 ## Optimisers
 - [ ] Conditional branch reduction - The translation of logical statements utilises 's**' operations (e.g. sgt) meaning a the result is stored in a specified register, in the case of conditional statements this operation is always followed by a 'beq' or 'bne' operation these can be reduced to just 'bgt'
 ## Long Term

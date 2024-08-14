@@ -1,5 +1,5 @@
 use crate::{compiler::scanner::{Token, TokenType}, error_handler::{print_stage, report}};
-use super::scanner::tok_type_string;
+use super::{mips_operations::VarType, scanner::tok_type_string};
 
 struct ParserError;
 
@@ -37,6 +37,14 @@ pub struct VariableExpr<'a> {
 }
 
 #[derive(Clone)]
+pub struct ArrayIntialiserExpr<'a> {
+    pub(super) elements: Vec<Box<Expr<'a>>>,
+    pub(super) brace_tok: &'a Token,
+    pub(super) step_size: usize,
+    pub(super) var_type: &'a Token
+}
+
+#[derive(Clone)]
 pub struct StoredValueExpr {
     pub(super) value: usize
 }
@@ -50,6 +58,7 @@ pub enum Expr<'a> {
     Unary(UnaryExpr<'a>),
     Variable(VariableExpr<'a>),
     StoredValueExpr(StoredValueExpr),
+    ArrayIntialiserExpr(ArrayIntialiserExpr<'a>)
 }
 
 pub struct BlockStmt<'a> {
@@ -81,13 +90,17 @@ pub struct ReturnStmt<'a> {
 pub struct VarStmt<'a> {
     pub(super) var_name: &'a Token,
     pub(super) var_type: &'a Token,
-    pub(super) initialiser: Option<Box<Expr<'a>>>
+    pub(super) initialiser: Option<Box<Expr<'a>>>,
+    pub(super) var_sizes: Vec<usize>,
+    pub(super) total_size: usize,
+    pub(super) is_array: bool
 }
 
 pub struct AssignStmt<'a> {
     pub(super) lvalue_expr: Box<Expr<'a>>,
     pub(super) binding: Box<Expr<'a>>,
-    pub(super) equal_tok: &'a Token
+    pub(super) equal_tok: &'a Token,
+    pub(super) lvalue_var: Token
 }
 
 pub struct WhileStmt<'a> {
@@ -132,31 +145,59 @@ impl<'a> Expr<'a> {
 
     // This function aims to match the following definition for lvalue expressions:
     // *(lvalue + expr) | *(lvalue - expr) | *(expr + lvalue) | lvalue | *lvalue | *(lvalue) | var_name
-    fn match_l_value(&self, derefed: bool) -> bool {
+    pub(super) fn match_l_value(&self, derefed: bool) -> Option<Token> {
         match self {
             Expr::Binary(e) => {
                 if !derefed {
-                    return false;
+                    return None;
                 }
-                let left_is_lvalue = e.left.match_l_value(false);
+                let left_lvalue = e.left.match_l_value(false);
                 let operator = e.operator.tok_type;
-                if left_is_lvalue && (operator == TokenType::Plus || operator == TokenType::Minus) {
-                    return true; // *(lvalue + expr) | *(lvalue - expr)
+                if left_lvalue.is_some() && (operator == TokenType::Plus || operator == TokenType::Minus) {
+                    return left_lvalue; // *(lvalue + expr) | *(lvalue - expr)
                 }
-                else if !left_is_lvalue && operator == TokenType::Plus {
+                else if !left_lvalue.is_some() && operator == TokenType::Plus {
                     return e.right.match_l_value(false);
                 }
-                return false;
+                return None;
             },
-            Expr::Call(_) => false,
+            Expr::Call(_) => None,
             Expr::Grouping(e) => e.expression.match_l_value(derefed),
-            Expr::Literal(_) => false,
+            Expr::Literal(_) => None,
             Expr::Unary(e) => {
                 let derefed = e.operator.tok_type == TokenType::Star;
                 e.right.match_l_value(derefed)
             },
-            Expr::Variable(_) => true,
-            Expr::StoredValueExpr(_) => false,
+            Expr::Variable(v) => Some(v.name.clone()),
+            Expr::StoredValueExpr(_) => None,
+            Expr::ArrayIntialiserExpr(_) => None,
+        }
+    }
+
+    // Computes the maximum length of each node at each level in the tree
+    fn array_initialiser_sizes(&self, depth: usize, max_lengths: &mut Vec<usize>) {
+        match self {
+            Expr::ArrayIntialiserExpr(init) => {
+                for element in &init.elements {
+                    element.array_initialiser_sizes(depth + 1, max_lengths);
+                }
+                while depth >= max_lengths.len() { max_lengths.push(0); }
+                max_lengths[depth] = max_lengths[depth].max(init.elements.len());
+            }
+            _ => ()
+        }
+    }
+
+    fn propogate_sizes_and_type(&mut self, depth: usize, sizes: &Vec<usize>, var_type: &'a Token) {
+        match self {
+            Expr::ArrayIntialiserExpr(init) => {
+                for element in &mut init.elements {
+                    element.propogate_sizes_and_type(depth + 1, sizes, var_type)
+                }
+                init.step_size = sizes[(depth+1)..sizes.len()].into_iter().fold(1, |acc, e| acc * e);
+                init.var_type = var_type;
+            },
+            _ => ()
         }
     }
 }
@@ -302,7 +343,8 @@ fn parenthesize_expr(expr: Box<Expr>) -> String {
             let str = pretty_print_stmt(&call_stmt, 0);
             (&str[..str.len() - 2]).to_string()
         },
-        Expr::StoredValueExpr(sto) => format!("{}", sto.value)
+        Expr::StoredValueExpr(sto) => format!("{}", sto.value),
+        Expr::ArrayIntialiserExpr(array_init) => parenthesize(String::from("{}"), array_init.elements),
     }
 } 
 
@@ -554,10 +596,13 @@ fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: b
     let lhs_expr;
     (lhs_expr, current) = expression(current - 1, tokens)?;
 
-    if !lhs_expr.match_l_value(false) {
-        parsing_error(previous(current, tokens), String::from("Expected lvalue expression"));
-        return Err(ParserError);
-    }
+    let lvalue_var = match lhs_expr.match_l_value(false) {
+        Some(v) => v,
+        None => {
+            parsing_error(previous(current, tokens), String::from("Expected lvalue expression"));
+            return Err(ParserError);
+        }
+    };
     
     if match_token(&mut current, tokens, &Vec::from([TokenType::Equal, TokenType::AndEqual, TokenType::OrEqual, TokenType::XorEqual, TokenType::PlusEqual, TokenType::StarEqual, TokenType::MinusEqual, TokenType::SlashEqual, TokenType::PercentEqual])) {
         let assignment_type = previous(current, tokens);
@@ -592,7 +637,8 @@ fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: b
             return Ok((Stmt::Assign(AssignStmt {
                 lvalue_expr: lhs_expr,
                 binding,
-                equal_tok: assignment_type 
+                equal_tok: assignment_type,
+                lvalue_var
             }), current));
         }
         else {
@@ -609,7 +655,7 @@ fn generate_statement<'a>(current: usize, tokens: &'a Vec<Token>, inline_stateme
     else if match_token(&mut current, tokens, &Vec::from([TokenType::If])) { return if_statement(current, tokens, &ret_type); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier, TokenType::Star, TokenType::LeftParen])) {
         let identifier = previous(current, tokens);
-        if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
+        if identifier.is_alpha() && match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
             return function_call_statement(current, tokens, identifier, false);
         }
         else {
@@ -713,24 +759,92 @@ fn function_declaration<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize
     }
 }
 
+// TODO: This function is a mess
+fn variable_size(init: Option<Box<Expr>>, specified_lens: &Vec<Option<usize>>, var_token: &Token) -> Result<Vec<usize>, ParserError> {
+    let mut result_lengths = vec![];
+    let mut valid_length_specified = true;
+    let mut lens = Vec::new();
+
+    for opt_len in specified_lens {
+        match opt_len {
+            Some(len) => lens.push(*len),
+            None => {
+                valid_length_specified = false;
+                break;
+            },
+        }
+    }
+
+    if let Some(var_init) = init {
+        if let Expr::ArrayIntialiserExpr(_) = *var_init {}
+        else {
+            return Ok(Vec::from([1]));
+        }
+
+        let mut initialiser_lengths: Vec<usize> = Vec::new();
+        var_init.array_initialiser_sizes(0, &mut initialiser_lengths);
+        let specified_dims = lens.len();
+
+        while initialiser_lengths.len() < specified_dims { initialiser_lengths.push(0); }
+        while lens.len() < initialiser_lengths.len() { lens.push(0); }
+
+        for i in 0..initialiser_lengths.len() {
+            if initialiser_lengths[i] > lens[i] && specified_lens[i].is_some() {
+                parsing_error(var_token, String::from("Array initialiser dimensions do not match those specified."));
+                return Err(ParserError);
+            }
+            else if specified_lens[i].is_none() {
+                result_lengths.push(initialiser_lengths[i])
+            } else {
+                result_lengths.push(lens[i])
+            }
+        }
+    }
+
+    if valid_length_specified {
+        result_lengths = lens;
+    }
+    
+    result_lengths.push(1);
+    return Ok(result_lengths);
+}
+
 fn variable_declaration<'a>(current: usize, tokens: &'a Vec<Token>, is_func_arg: bool, depth: usize) -> Result<(Stmt, usize), ParserError> {
     let mut current = current;
     let var_type = previous(current, tokens);
+    let mut is_array = false;
 
-    // Optional Stars for pointer
+    // Optional Stars for pointers
     while match_token(&mut current, tokens, &Vec::from([TokenType::Star])) {}
 
     let var_name;
     (var_name, current) = consume_token(TokenType::Identifier, String::from("Expect variable name."), current, tokens);
 
-    let initialiser;
+    // Array bounds initialisation
+    let mut array_lens = Vec::new();
+    while match_token(&mut current, tokens, &Vec::from([TokenType::LeftSquareBrace])) {
+        is_array = true;
+        let len = peek(current, tokens);
+        if match_token(&mut current, tokens, &Vec::from([TokenType::Number])) {
+            match len.lexeme.parse::<usize>() {
+                Ok(len_i) => array_lens.push(Some(len_i)),
+                Err(_) => { 
+                    parsing_error(len, String::from("Expect integral value array size."));
+                    return Err(ParserError)
+                }
+            }
+        }
+        else {
+            array_lens.push(None)
+        }
+        (_, current) = consume_token(TokenType::RightSquareBrace, String::from("Expect ']' after array size."), current, tokens);
+    }
 
+    let mut initialiser;
     if match_token(&mut current, tokens, &Vec::from([TokenType::Equal])) {
         let initialiser_result = expression_statement(current, tokens);
         match initialiser_result {
-            Ok((init, c)) => { 
-                (initialiser, current) = (Some(init), c);
-            }
+            Ok((init, c)) => (initialiser, current) = (Some(init), c),
             Err(_) => return Err(ParserError)
         }
     }
@@ -745,10 +859,17 @@ fn variable_declaration<'a>(current: usize, tokens: &'a Vec<Token>, is_func_arg:
         (_, current) = consume_token(TokenType::Semicolon, String::from("Expect ';' after variable declaration."), current, tokens);
     }
 
+    let var_sizes = variable_size(initialiser.clone(), &array_lens, var_name)?;
+    if let Some(ref mut init) = initialiser { init.propogate_sizes_and_type(0, &var_sizes, var_type) }
+    let total_size = var_sizes.clone().into_iter().reduce(|acc, e| (acc * e)).unwrap(); 
+    
     return Ok((Stmt::Variable(VarStmt {
         var_name,
         var_type,
         initialiser,
+        var_sizes,
+        total_size,
+        is_array
     }), current));
 
 }
@@ -825,16 +946,21 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
         }));
 
         // Array subscripting
+        let mut index_exprs = vec![];
         while match_token(&mut current, tokens, &Vec::from([TokenType::LeftSquareBrace])) {
-            let (index_expr, _) = expression(current, tokens)?;
-            
-            consume_token(TokenType::RightSquareBrace, String::from("Expect ']' after array subscript."), current, tokens);   
+            let index_expr;
+            (index_expr, current) = expression(current, tokens)?;
+            index_exprs.push(index_expr);
+            (_, current) = consume_token(TokenType::RightSquareBrace, String::from("Expect ']' after array subscript."), current, tokens);
+        }
+
+        while let Some(expr) = index_exprs.pop() {
             let addition_expr = Box::new(Expr::Binary(BinaryExpr { 
                 left: var_expr, 
-                right: index_expr, 
+                right: expr, 
                 operator: Token::generate_token(TokenType::Plus, identifier.line_no)
             }));
-            
+
             var_expr = Box::new(Expr::Unary(UnaryExpr { 
                 operator: Token::generate_token(TokenType::Star, identifier.line_no),
                 right: addition_expr 
@@ -842,6 +968,30 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
         }
 
         return Ok((var_expr, current));
+    }
+
+    // Array initialiser e.g. { 1, 3 + 2, 2 * x }
+    let brace_tok = peek(current, tokens);
+    if match_token(&mut current, tokens, &Vec::from([TokenType::LeftBrace])) {
+        let mut exprs = Vec::new();
+
+        while !match_token(&mut current, tokens, &Vec::from([TokenType::RightBrace])) {
+            if exprs.len() >= 1 {
+                (_, current) = consume_token(TokenType::Comma, String::from("Expect ',' delimiting expressions."), current, tokens);
+            }
+            let expr;
+            (expr, current) = expression(current, tokens)?;
+            exprs.push(expr);
+        }
+
+        let size = &exprs.len();
+        let ret_expr = Box::new(Expr::ArrayIntialiserExpr(ArrayIntialiserExpr {
+            elements: exprs,
+            brace_tok,
+            step_size: *size,
+            var_type: brace_tok
+        }));
+        return Ok((ret_expr, current));
     }
 
     if match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {

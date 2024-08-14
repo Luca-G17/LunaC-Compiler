@@ -105,6 +105,11 @@ impl Token {
             _ => false 
         }
     }
+
+    pub(super) fn is_alpha(&self) -> bool {
+        self.lexeme.chars().all(|c| Scanner::is_alpha(c))
+    }
+
 }
 
 struct Scanner {
@@ -234,10 +239,10 @@ impl Scanner {
             '\n' => self.line_no += 1,
             ' ' | '\r' | '\t' => (),
             _ => {
-                if self.is_digit(c) {
+                if Scanner::is_digit(c) {
                     self.parse_number();
                 }
-                else if self.is_alpha(c) {
+                else if Scanner::is_alpha(c) {
                     self.parse_identifier();
                 }
                 else {
@@ -266,27 +271,27 @@ impl Scanner {
     }
 
     fn is_alphaneumeric(&self, c: char) -> bool {
-        return self.is_alpha(c) || self.is_digit(c);
+        return Scanner::is_alpha(c) || Scanner::is_digit(c);
     }
 
-    fn is_alpha(&self, c: char) -> bool {
+    fn is_alpha(c: char) -> bool {
         return (c >= 'a' && c <= 'z') ||
                (c >= 'A' && c <= 'Z') ||
                 c == '_';
     }
 
-    fn is_digit(&self, c: char) -> bool {
+    fn is_digit(c: char) -> bool {
         return c >= '0' && c <= '9';
     }
 
     fn parse_number(&mut self) {
         // First part of decimal
-        while self.is_digit(self.peek()) { self.next_char(); }
-        if self.peek() == '.' && self.is_digit(self.peek_next()) {
+        while Scanner::is_digit(self.peek()) { self.next_char(); }
+        if self.peek() == '.' && Scanner::is_digit(self.peek_next()) {
             self.next_char();
 
             // Second part of decimal
-            while self.is_digit(self.peek()) { self.next_char(); }
+            while Scanner::is_digit(self.peek()) { self.next_char(); }
         }
         self.add_token(TokenType::Number, String::from(&self.source[self.start..self.current]))
     }

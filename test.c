@@ -5,15 +5,9 @@ int add(float x, float y) {
 }
 
 int main() {
-    float x = 3.4;
-    float y = 2.9;
-    int z[] = { 5, 2, 3};
-    add(x, y);
-    x = (int) add(x, y);
-
-    int w = *(z + 1);
-    printf("%d\n", w);
-    *(z + 1) = 3;
-
-    *(z + add(x, y)) = 1;
+    int y = 0;
+    int x[2][4] = { {3, 2, 1, 7}, {3, 10, 8, 0 } };
+    //*(*(x + 1) + 1) = 4;
+    x[1][1] = 4;
+    y = x[1][1];
 }

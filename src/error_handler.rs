@@ -5,7 +5,18 @@ pub fn error(line_no: usize, message_str: String) {
 }
 
 pub fn report(line_no: usize, where_str: String, message_str: String) {
-    println!("[line {}] Error {}: {}", line_no, where_str, message_str);
+    let line = format!("[line {}] Error {}: {}", line_no, where_str, message_str);
+    println!("{}", line.red());
+}
+
+pub fn warning(line_no: usize, where_str: String, message_str: String) {
+    let line = format!("[line {}] Warning {}: {}", line_no, where_str, message_str);
+    println!("{}", line.yellow());
+}
+
+pub fn general_warning(message_str: String) {
+    let line = format!("Warning: {}", message_str);
+    println!("{}", line.yellow());
 }
 
 pub fn print_stage(content: String, header: String) {
