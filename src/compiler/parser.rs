@@ -655,7 +655,7 @@ fn generate_statement<'a>(current: usize, tokens: &'a Vec<Token>, inline_stateme
     else if match_token(&mut current, tokens, &Vec::from([TokenType::If])) { return if_statement(current, tokens, &ret_type); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier, TokenType::Star, TokenType::LeftParen])) {
         let identifier = previous(current, tokens);
-        if identifier.is_alpha() && match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
+        if identifier.is_alphaneumeric() && match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
             return function_call_statement(current, tokens, identifier, false);
         }
         else {

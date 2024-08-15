@@ -106,8 +106,8 @@ impl Token {
         }
     }
 
-    pub(super) fn is_alpha(&self) -> bool {
-        self.lexeme.chars().all(|c| Scanner::is_alpha(c))
+    pub(super) fn is_alphaneumeric(&self) -> bool {
+        self.lexeme.chars().all(|c| Scanner::is_alphaneumeric(c))
     }
 
 }
@@ -253,7 +253,7 @@ impl Scanner {
     } 
 
     fn parse_identifier(&mut self) {
-        while self.is_alphaneumeric(self.peek()) { self.next_char(); }
+        while Scanner::is_alphaneumeric(self.peek()) { self.next_char(); }
 
         let text = String::from(&self.source[self.start..self.current]);
         let tok_type = self.keywords.get(&text);
@@ -270,7 +270,7 @@ impl Scanner {
         }
     }
 
-    fn is_alphaneumeric(&self, c: char) -> bool {
+    fn is_alphaneumeric(c: char) -> bool {
         return Scanner::is_alpha(c) || Scanner::is_digit(c);
     }
 

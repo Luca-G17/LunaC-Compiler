@@ -29,13 +29,13 @@ pub(super) struct TranslatorError;
 struct Variable {
     var_mapping: VariableMapping,
     size: Vec<usize>,
-    is_array: bool
+    is_array: bool,
+    pub ptr_to_array: bool
 }
 
 impl Variable {
     fn step_size(&self, depth: usize, reading: bool) -> usize {
-        let offset = if reading { 0 } else { 1 };
-        return self.size[(depth+offset)..].iter().fold(1, |acc, s| s * acc);
+        return self.size[depth..].iter().fold(1, |acc, s| s * acc);
     } 
 }
 
@@ -65,7 +65,7 @@ impl<'a> Env<'a> {
         }));
     }
 
-    fn add_var(&mut self, var_name: &Token, var_type: VarType, var_size: Vec<usize>, is_array: bool) {
+    fn add_var(&mut self, var_name: &Token, var_type: VarType, var_size: Vec<usize>, is_array: bool, is_ptr_to_array: bool) {
         if self.mapping.contains_key(&var_name.lexeme.clone()) {
             return;
         }
@@ -75,7 +75,7 @@ impl<'a> Env<'a> {
             var_type
         });
 
-        self.mapping.insert(var_name.lexeme.clone(), Variable { var_mapping, size: var_size, is_array }); 
+        self.mapping.insert(var_name.lexeme.clone(), Variable { var_mapping, size: var_size, is_array, ptr_to_array: is_ptr_to_array }); 
         self.frame_ptr += 1;
         self.var_count += 1;
     }
@@ -351,9 +351,10 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
         Expr::Binary(e) => {
             let mut ops = Vec::new();
             let mut var_ptr = var_ptr;
-            let left_opt = get_atomic_operand(&e.left, env.clone(), var_ptr, false, reading, deref_depth);
             let mut left_operand;
             let mut left_store_ptr = var_ptr;
+            
+            let left_opt = get_atomic_operand(&e.left, env.clone(), var_ptr, false, reading, deref_depth);
             let left_lvalue;
 
             if let Some(left) = left_opt { 
@@ -391,7 +392,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             if let Some(right) = right_opt { 
                 let stack_ops;
                 (right_operand, stack_ops, var_ptr, right_lvalue) = right?;
-                ops.extend(stack_ops); 
+                ops.extend(stack_ops);
             }
             else {
                 let (right_translation, right_type, literal_value);
@@ -405,21 +406,23 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             }
 
             let mut array_ptr_opt = None;
-            if let Some(left_lvalue_tok) = &left_lvalue { // Left resolves to an array ptr
-                let step_size = env.borrow().get_variable(&left_lvalue_tok)?.step_size(deref_depth, reading);
-                let new_right_store = VariableMapping::from_register_number(var_ptr + 1, VarType::Int);
-                if step_size > 0 {
-                    ops.push(MipsOperation::Mul(Mul { store: new_right_store.clone(), op_1: right_operand, op_2: MipsOperand::from_unsigned_literal(step_size) }));
-                    right_operand = MipsOperand::VariableMapping(new_right_store);
+            if deref_depth > 0 {
+                if let Some(left_lvalue_tok) = &left_lvalue { // Left resolves to an array ptr
+                    let step_size = env.borrow().get_variable(&left_lvalue_tok)?.step_size(deref_depth, reading);
+                    let new_right_store = VariableMapping::from_register_number(var_ptr + 1, VarType::Int);
+                    if step_size > 0 {
+                        ops.push(MipsOperation::Mul(Mul { store: new_right_store.clone(), op_1: right_operand, op_2: MipsOperand::from_unsigned_literal(step_size) }));
+                        right_operand = MipsOperand::VariableMapping(new_right_store);
+                    }
+                    array_ptr_opt = left_lvalue; 
+                } else if let Some(right_lvalue_tok) = &right_lvalue { // Right resolves to an array ptr
+                    let step_size = env.borrow().get_variable(&right_lvalue_tok)?.step_size(deref_depth, reading);                let new_left_store = VariableMapping::from_register_number(var_ptr, VarType::Int);
+                    if step_size > 0 {
+                        ops.push(MipsOperation::Mul(Mul { store: new_left_store.clone(), op_1: left_operand, op_2: MipsOperand::from_unsigned_literal(step_size) }));
+                        left_operand = MipsOperand::VariableMapping(new_left_store);
+                    }
+                    array_ptr_opt = right_lvalue;
                 }
-                array_ptr_opt = left_lvalue; 
-            } else if let Some(right_lvalue_tok) = &right_lvalue { // Right resolves to an array ptr
-                let step_size = env.borrow().get_variable(&right_lvalue_tok)?.step_size(deref_depth, reading);                let new_left_store = VariableMapping::from_register_number(var_ptr, VarType::Int);
-                if step_size > 0 {
-                    ops.push(MipsOperation::Mul(Mul { store: new_left_store.clone(), op_1: left_operand, op_2: MipsOperand::from_unsigned_literal(step_size) }));
-                    left_operand = MipsOperand::VariableMapping(new_left_store);
-                }
-                array_ptr_opt = right_lvalue;
             }
 
             let (op_ops, store_type) = mips_binary_operation(&e.operator, left_store_ptr, left_operand, right_operand);
@@ -433,10 +436,11 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
         Expr::Unary(e) => {
             let mut var_ptr = var_ptr;
             let mut ops = Vec::new();
+            let mut operand;
+
             let referencing = e.operator.tok_type == TokenType::BitwiseAnd;
             let dereferencing = e.operator.tok_type == TokenType::Star;
             let oper_opt = get_atomic_operand(&e.right, env.clone(), var_ptr, referencing, reading, deref_depth);
-            let mut operand;
             let returning_literal_opt;
             let array_ptr_opt; 
 
@@ -572,8 +576,9 @@ fn translate_ast_and_write_to_stack<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>
                         ops.extend(indirect_write_to_stack(var_ptr, var_type, rhs_type));
                     } 
                     else {
-                        ops.push(MipsOperation::Move(Move { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(var_ptr + 1, VarType::Int)}));
-                        ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(var_ptr, var_type)}));
+                        ops.extend(indirect_write_to_stack(var_ptr, var_type, rhs_type));
+                        // ops.push(MipsOperation::Move(Move { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(var_ptr + 1, VarType::Int)}));
+                        // ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(var_ptr, var_type)}));
                     }
                 },
                 None => ops.extend(write_to_stack(var_stack_addr, var_ptr, var_type, rhs_type)),
@@ -584,18 +589,14 @@ fn translate_ast_and_write_to_stack<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>
     return Ok(ops);
 }
 
+// TODO - reading is poorly named
 fn variable_expr_to_mips_access<'a>(var: &VariableExpr, env: Rc<RefCell<Env<'a>>>, reg_ptr: usize, access_reference: bool, reading: bool, arr_ref_def: usize) -> Result<(MipsOperand, Vec<MipsOperation>, usize, Option<Token>), TranslatorError> {
     let borrowed_env = env.borrow();
     
     // if var_mapping is a stack mapping we must append stack access instructions and return the appropriate temp register mapping at this point
     let mapping = borrowed_env.get_variable_mapping(&var.name)?;
     let arr_ptr_tok = if env.borrow().var_is_array_ptr(var.name)? { Some(var.name.clone()) } else { None };
-    let derefing_array_element = { 
-         match &arr_ptr_tok {
-            Some(arr_ptr) => !reading && borrowed_env.get_variable(&arr_ptr)?.size.len() == arr_ref_def + 1,
-            None => false
-         }
-    };
+
     match mapping {
         VariableMapping::RegisterMapping(r) => {
             return Ok((MipsOperand::VariableMapping(VariableMapping::RegisterMapping(r)), Vec::new(), reg_ptr, arr_ptr_tok));
@@ -604,13 +605,31 @@ fn variable_expr_to_mips_access<'a>(var: &VariableExpr, env: Rc<RefCell<Env<'a>>
             let mut local_reg_ptr = reg_ptr;
             let mut ops = Vec::new();
             let tmp_store_reg = MipsOperand::from_register_number(local_reg_ptr, s.var_type.clone());
-            if (!access_reference && arr_ptr_tok.is_none()) || derefing_array_element {
-                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + 2)) }));
-                ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
-            } else {
-                let offset = if reading { 2 } else { 1 };
-                ops.push(MipsOperation::Add(Add { store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: local_reg_ptr, var_type: s.var_type}), op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
+            let mut offset: usize = 2;
+
+
+            if access_reference {
+                ops.push(MipsOperation::Add(Add { store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: local_reg_ptr, var_type: s.var_type}), op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));     
             }
+            else if let Some(arr_tok) = &arr_ptr_tok {
+                let var = borrowed_env.get_variable(&arr_tok)?;
+                if !var.ptr_to_array {
+                    ops.push(MipsOperation::Add(Add { store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: local_reg_ptr, var_type: s.var_type}), op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
+                } else {
+                    if reading && !var.ptr_to_array { offset = 2; }
+                    else if !reading && var.ptr_to_array { offset = 2; }
+                    else if reading && var.ptr_to_array { 
+                        offset = 2;
+                    }
+                    ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
+                    ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
+                }
+            }
+            else {
+                ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
+                ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
+            }
+
             local_reg_ptr += 1;
             
             return Ok((tmp_store_reg, ops, local_reg_ptr, arr_ptr_tok));
@@ -744,7 +763,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
             for (i, param) in func.params.iter().enumerate() {
                 if let Stmt::Variable(p) = param {
                     let var_type = VarType::from_token(p.var_type)?;
-                    func_env.borrow_mut().add_var(&p.var_name, var_type.clone(), p.var_sizes.clone(), p.is_array);
+                    func_env.borrow_mut().add_var(&p.var_name, var_type.clone(), p.var_sizes.clone(), p.is_array, p.is_array);
                     ops.extend(write_to_variable(&p.var_name, func_env.clone(), param_reg_ptr + i, var_type.clone(), var_type)?);
                 }
             }
@@ -822,7 +841,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
         },
         Stmt::Variable(var) => {
             let var_type = VarType::from_token(var.var_type)?;
-            env.borrow_mut().add_var(&var.var_name, var_type.clone(), var.var_sizes.clone(), var.is_array);
+            env.borrow_mut().add_var(&var.var_name, var_type.clone(), var.var_sizes.clone(), var.is_array, false);
             let mut var_ops = Vec::new();
             let reg_ptr = env.borrow().get_reg_ptr();
             match &var.initialiser {
@@ -915,7 +934,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                 Some(lvalue_expr) => {
                     // translate lvalue expression and store right expression result in defrefed location
                     // register r(return_register + 1) contains the stack address to store the rhs result in.
-                    let (store_ops, _, _, _, arr_tok) = translate_ast(lvalue_expr, env.clone(), address_register, 0, 0, false, None)?;
+                    let (store_ops, _, _, _, arr_tok) = translate_ast(lvalue_expr, env.clone(), address_register, 0, 1, false, None)?;
                     let writing_to_arr = arr_tok.is_some();
                     ops.extend(translate_ast_and_write_to_stack(&assign.binding, env.clone(), return_register, lvalue_addr, lvalue_type, Some(store_ops), writing_to_arr)?); 
                 }
@@ -967,7 +986,7 @@ pub(super) fn translate_statements(statements: Vec<Stmt>) -> Vec<MipsOperation> 
         }
         else if let Stmt::Variable(s) = stmt {
             if let Ok(var_type) = VarType::from_token(s.var_type) {
-                global_env.borrow_mut().add_var(&s.var_name, var_type, s.var_sizes.clone(), s.is_array);
+                global_env.borrow_mut().add_var(&s.var_name, var_type, s.var_sizes.clone(), s.is_array, false);
             }
         }
     }
