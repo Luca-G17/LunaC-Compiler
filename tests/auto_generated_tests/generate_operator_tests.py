@@ -19,7 +19,7 @@ def generate_test(operator, indent_depth=1):
     test_name = f"{operator['string_name']}_auto"
     rust_str = f"{i}#[test]\n"
     rust_str += f"{i}pub fn {test_name}() {{\n"
-    rust_str += f'{indents(indent_depth + 1)}test_translation(String::from("{test_name}"), String::from("auto_generated_tests"), 1);\n'
+    rust_str += f'{indents(indent_depth + 1)}test_translation("{test_name}", TEST_DIRECTORY, 1);\n'
     rust_str += f"{i}}}\n"
 
     c_test = ""
@@ -37,7 +37,7 @@ def generate_test(operator, indent_depth=1):
     return rust_str
 
 def generate_rust_tests(operators):
-    rust_str = """#[allow(unused_imports)]\nuse crate::tests::test_translation;\n\n#[cfg(test)]\npub mod translator_tests {\n   use super::*;\n"""
+    rust_str = """#[allow(unused_imports)]\nuse crate::tests::test_translation;\n\n#[cfg(test)]\npub mod translator_tests {\n   use super::*;\n    const TEST_DIRECTORY: &str = \"auto_generated_tests\";\n"""
     
     for op in operators:
         rust_str += generate_test(op)

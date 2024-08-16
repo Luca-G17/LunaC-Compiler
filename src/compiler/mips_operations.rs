@@ -1,11 +1,9 @@
-use std::fmt::Error;
-
-use super::{scanner::{Token, TokenType}, translator::translating_error};
+use super::{scanner::{Token, TokenType}, translator::{translating_error, TranslatorError}};
 
 #[derive(Clone)]
 pub(super) struct RegisterMapping {
     pub(super) reg_no: usize,
-    pub(super) var_type: VarType
+    pub(super) var_type: VarType,
 }
 
 #[derive(Clone)]
@@ -22,7 +20,7 @@ pub(super) enum VarType {
 }
 
 impl VarType {
-    pub(super) fn from_token(tok: &Token) -> Result<Self, Error> {
+    pub(super) fn from_token(tok: &Token) -> Result<Self, TranslatorError> {
         if tok.tok_type == TokenType::Int {
             return Ok(VarType::Int)
         }
@@ -31,7 +29,14 @@ impl VarType {
         }
         else {
             translating_error(tok, String::from("Unrecognised argument type"));
-            return Err(Error)
+            return Err(TranslatorError)
+        }
+    }
+
+    pub(super) fn to_token(&self) -> Token {
+        match self {
+            VarType::Int => Token { tok_type: TokenType::Int, lexeme: String::from("int"), literal: String::from("int"), line_no: 0 },
+            VarType::Float => Token { tok_type: TokenType::Float, lexeme: String::from("float"), literal: String::from("float"), line_no: 0 },
         }
     }
 }
@@ -47,6 +52,24 @@ pub(super) enum VariableMapping {
 impl VariableMapping {
     pub(super) fn from_register_number(reg_no: usize, var_type: VarType) -> Self {
         VariableMapping::RegisterMapping(RegisterMapping { reg_no, var_type })
+    }
+
+    pub(super) fn get_var_type(&self) -> VarType {
+        match self {
+            VariableMapping::RegisterMapping(reg) => reg.var_type.clone(),
+            VariableMapping::StackMapping(sta) => sta.var_type.clone(),
+            VariableMapping::StackPointer => VarType::Int,
+            VariableMapping::ReturnAddress => VarType::Int,
+        }
+    }
+
+    pub(super) fn get_address(&self) -> usize {
+        match self {
+            VariableMapping::RegisterMapping(reg_map) => reg_map.reg_no,
+            VariableMapping::StackMapping(stc_map) => stc_map.relative_addr,
+            VariableMapping::StackPointer => 0,
+            VariableMapping::ReturnAddress => 1
+        }
     }
 }
 
@@ -220,6 +243,11 @@ pub(super) enum MipsOperand {
 }
 
 impl MipsOperand {
+
+    pub(super) fn from_unsigned_literal(integer: usize) -> Self {
+        MipsOperand::Literal(format!("{}", integer))
+    }
+
     pub(super) fn from_register_number(reg_no: usize, var_type: VarType) -> Self {
         MipsOperand::VariableMapping(VariableMapping::RegisterMapping(RegisterMapping { reg_no, var_type }))
     }
@@ -238,13 +266,7 @@ impl MipsOperand {
 
     pub(super) fn get_var_type(&self) -> VarType {
         match self {
-            MipsOperand::VariableMapping(var) => {
-                match var {
-                    VariableMapping::RegisterMapping(reg) => reg.var_type.clone(),
-                    VariableMapping::StackMapping(sta) => sta.var_type.clone(),
-                    VariableMapping::StackPointer | VariableMapping::ReturnAddress => VarType::Int,
-                }
-            },
+            MipsOperand::VariableMapping(var) => var.get_var_type(),
             MipsOperand::Literal(lit) => if lit.contains('.') { VarType::Float } else {VarType::Int },
         }
     }

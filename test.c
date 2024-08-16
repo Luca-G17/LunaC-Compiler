@@ -1,12 +1,16 @@
 #include <stdio.h>
 
-int add(float x, float y) {
-    return x + y;
-} 
+int test(int x[2][4]) {
+    x[1][1] += 4;
+    return x[1][0];
+}
 
 int main() {
-    float x = 3.4;
-    float y = 2.9;
-    add(x, y);
-    x = (int) add(x, y);
+    int x = 0;
+    int y = 1;
+    int z = 10;
+    int* a[10];
+    a[0] = &y;
+    a[1] = &z;
+    x = *a[0] + *a[1];
 }

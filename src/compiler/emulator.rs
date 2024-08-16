@@ -201,12 +201,17 @@ fn print_stack(stack: &[f32], print_size: usize) {
     let right_t = '┤';
     let mut stack_str = String::from("");
 
+
+    // Compute paddngs
+    let padding: Vec<usize> = (0..print_size).map(|i| i.to_string().len().max(stack[i].to_string().len()) + 2).collect();
+
+
     // Print top border
     stack_str.push_str(&format!("{}", top_left));
     stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
     stack_str.push_str(&format!("{}", top_t));
     for i in 0..print_size {
-        let box_width = stack[i].to_string().len() + 2;
+        let box_width = padding[i];
 
         stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
         if i < print_size - 1 {
@@ -221,7 +226,7 @@ fn print_stack(stack: &[f32], print_size: usize) {
     stack_str.push_str(&format!("{}", vertical));
     for i in 0..print_size {
         let num_str = i.to_string();
-        let extra_padding = stack[i].to_string().len() - num_str.len();
+        let extra_padding = padding[i] - num_str.len() - 2;
         let padding = 1 + (box_width - num_str.len()) / 2;
         stack_str.push_str(&format!(
             "{}{}{}",
@@ -238,7 +243,7 @@ fn print_stack(stack: &[f32], print_size: usize) {
     stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
     stack_str.push_str(&format!("{}", intersection));
     for i in 0..print_size {
-        let box_width = stack[i].to_string().len() + 2;
+        let box_width = padding[i];
         stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
         if i < print_size - 1 {
             stack_str.push_str(&format!("{}", intersection));
@@ -254,10 +259,11 @@ fn print_stack(stack: &[f32], print_size: usize) {
     stack_str.push_str(&format!("{}", vertical));
     for i in 0..print_size {
         let num_str = stack[i].to_string();
+        let extra_padding = padding[i] - num_str.len() - 2;
         let padding = 1;
         stack_str.push_str(&format!(
             "{}{}{}",
-            " ".repeat(padding),
+            " ".repeat(padding + extra_padding),
             num_str,
             " ".repeat(padding)
         ));
@@ -270,7 +276,7 @@ fn print_stack(stack: &[f32], print_size: usize) {
     stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
     stack_str.push_str(&format!("{}", bottom_t));
     for i in 0..print_size {
-        let box_width = stack[i].to_string().len() + 2;
+        let box_width = padding[i];
         stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
         if i < print_size - 1 {
             stack_str.push_str(&format!("{}", bottom_t));
@@ -296,5 +302,5 @@ pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usiz
     }
     
     print_stack(&stack, stack_print_size);
-    return stack[1..ret_count].to_vec();
+    return stack[1..(ret_count + 1)].to_vec();
 }

@@ -1,6 +1,5 @@
 use std::fs;
 use std::process::Command;
-use std::env::current_dir;
 
 use crate::compiler::parser;
 use crate::compiler::scanner;
@@ -34,41 +33,47 @@ pub mod parser_tests {
 #[cfg(test)]
 pub mod translator_tests {
     use super::*;
+    const TEST_DIRECTORY: &str = "translation_tests";
 
     #[test]
     pub fn fibonacci() {
-        test_translation(String::from("fibonacci_recursive"), String::from("translation_tests"), 1);
+        test_translation("fibonacci_recursive", TEST_DIRECTORY, 1);
     }
 
     #[test]
     pub fn sum_of_5s() {
-        test_translation(String::from("sum_of_5s_&_9s"), String::from("translation_tests"), 1);
+        test_translation("sum_of_5s_&_9s", TEST_DIRECTORY, 1);
     }
 
     #[test]
     pub fn weird_loops() {
-        test_translation(String::from("weird_loops"), String::from("translation_tests"), 1);
+        test_translation("weird_loops", TEST_DIRECTORY, 1);
     }
 
     #[test]
     pub fn pointers_recursive() {
-        test_translation(String::from("pointers_recursive"), String::from("translation_tests"), 1);
+        test_translation("pointers_recursive", TEST_DIRECTORY, 1);
     }
 
     #[test]
     pub fn implicit_type_conversions() {
-        test_translation(String::from("implicit_type_conversion"), String::from("translation_tests"), 3);
+        test_translation("implicit_type_conversion", TEST_DIRECTORY, 3);
     }
 
     #[test]
     pub fn explicit_type_conversions() {
-        test_translation(String::from("explicit_type_conversion"), String::from("translation_tests"), 1);
+        test_translation("explicit_type_conversion", TEST_DIRECTORY, 1);
+    }
+
+    #[test]
+    pub fn arrays() {
+        test_translation("arrays", TEST_DIRECTORY, 4)
     }
 
 }
 
 #[allow(dead_code)]
-pub fn test_translation(test_name: String, test_dir: String, result_count: usize) {
+pub fn test_translation(test_name: &str, test_dir: &str, result_count: usize) {
     let filename = format!("tests/{}/{}.c", test_dir, test_name);
     let result = translate_and_emulate(filename.clone(), result_count);
 

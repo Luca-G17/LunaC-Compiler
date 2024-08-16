@@ -11,6 +11,8 @@ pub enum TokenType {
     RightParen,
     LeftBrace,
     RightBrace,
+    LeftSquareBrace,
+    RightSquareBrace,
     Comma, 
     Dot,
     Minus, Plus, Semicolon, Slash, Star, Percent,
@@ -47,7 +49,6 @@ pub enum TokenType {
     While,
     Int, Float, Double, Char, Signed, Long, Printf,
 
-    Hash,
     Eof,
 }
 
@@ -61,6 +62,7 @@ pub(super) fn tok_type_string(tok_type: TokenType) -> String {
         TokenType::Slash => String::from("/"),
         TokenType::Percent => String::from("%"),
         TokenType::BitwiseXor => String::from("^"),
+        TokenType::RightShiftEqual => String::from("[]"),
         _ => String::from("")
     }
 }
@@ -76,6 +78,11 @@ pub struct Token {
 impl Token {
     fn to_string(&self) -> String {
         return format!("[{}]: {} {}", self.line_no, self.literal, self.lexeme);
+    }
+
+    pub(super) fn generate_token(tok_type: TokenType, line_no: usize) -> Token {
+        let tok_str = tok_type_string(tok_type.clone());
+        Token { tok_type, lexeme: tok_str.clone(), literal: tok_str.clone(), line_no }
     }
 
     pub(super) fn is_bitwise_operator(&self) -> bool {
@@ -98,6 +105,11 @@ impl Token {
             _ => false 
         }
     }
+
+    pub(super) fn is_alphaneumeric(&self) -> bool {
+        self.lexeme.chars().all(|c| Scanner::is_alphaneumeric(c))
+    }
+
 }
 
 struct Scanner {
@@ -118,6 +130,8 @@ impl Scanner {
             ')' => self.add_token(TokenType::RightParen, c.to_string()),
             '{' => self.add_token(TokenType::LeftBrace, c.to_string()),
             '}' => self.add_token(TokenType::RightBrace, c.to_string()),
+            '[' => self.add_token(TokenType::LeftSquareBrace, c.to_string()),
+            ']' => self.add_token(TokenType::RightSquareBrace, c.to_string()),
             ',' => self.add_token(TokenType::Comma, c.to_string()),
             '.' => self.add_token(TokenType::Dot, c.to_string()),
             ';' => self.add_token(TokenType::Semicolon, c.to_string()),
@@ -225,10 +239,10 @@ impl Scanner {
             '\n' => self.line_no += 1,
             ' ' | '\r' | '\t' => (),
             _ => {
-                if self.is_digit(c) {
+                if Scanner::is_digit(c) {
                     self.parse_number();
                 }
-                else if self.is_alpha(c) {
+                else if Scanner::is_alpha(c) {
                     self.parse_identifier();
                 }
                 else {
@@ -239,7 +253,7 @@ impl Scanner {
     } 
 
     fn parse_identifier(&mut self) {
-        while self.is_alphaneumeric(self.peek()) { self.next_char(); }
+        while Scanner::is_alphaneumeric(self.peek()) { self.next_char(); }
 
         let text = String::from(&self.source[self.start..self.current]);
         let tok_type = self.keywords.get(&text);
@@ -256,28 +270,28 @@ impl Scanner {
         }
     }
 
-    fn is_alphaneumeric(&self, c: char) -> bool {
-        return self.is_alpha(c) || self.is_digit(c);
+    fn is_alphaneumeric(c: char) -> bool {
+        return Scanner::is_alpha(c) || Scanner::is_digit(c);
     }
 
-    fn is_alpha(&self, c: char) -> bool {
+    fn is_alpha(c: char) -> bool {
         return (c >= 'a' && c <= 'z') ||
                (c >= 'A' && c <= 'Z') ||
                 c == '_';
     }
 
-    fn is_digit(&self, c: char) -> bool {
+    fn is_digit(c: char) -> bool {
         return c >= '0' && c <= '9';
     }
 
     fn parse_number(&mut self) {
         // First part of decimal
-        while self.is_digit(self.peek()) { self.next_char(); }
-        if self.peek() == '.' && self.is_digit(self.peek_next()) {
+        while Scanner::is_digit(self.peek()) { self.next_char(); }
+        if self.peek() == '.' && Scanner::is_digit(self.peek_next()) {
             self.next_char();
 
             // Second part of decimal
-            while self.is_digit(self.peek()) { self.next_char(); }
+            while Scanner::is_digit(self.peek()) { self.next_char(); }
         }
         self.add_token(TokenType::Number, String::from(&self.source[self.start..self.current]))
     }

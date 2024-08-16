@@ -26,5 +26,5 @@ pub fn translate_and_print(filename: String) {
 pub fn translate_and_emulate(filename: String, ret_count: usize) -> Vec<f32> {
     let ops = translate(filename);
     print_stage(translator::mips_operations_to_string(&ops), String::from("TRANSLATION:"));
-    emulator::process_operations(ops, 8, ret_count)
+    emulator::process_operations(ops, 20, ret_count)
 }
