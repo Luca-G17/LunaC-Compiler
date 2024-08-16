@@ -302,5 +302,5 @@ pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usiz
     }
     
     print_stack(&stack, stack_print_size);
-    return stack[1..ret_count].to_vec();
+    return stack[1..(ret_count + 1)].to_vec();
 }

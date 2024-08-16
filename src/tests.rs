@@ -67,7 +67,7 @@ pub mod translator_tests {
 
     #[test]
     pub fn arrays() {
-        test_translation("arrays", TEST_DIRECTORY, 1)
+        test_translation("arrays", TEST_DIRECTORY, 4)
     }
 
 }
