@@ -3,6 +3,4 @@
 FILE_PATH=$1
 BIN_DIR=""$(echo "$FILE_PATH" | rev | cut -d'/' -f2- | rev)"/bin/"
 BIN_FILENAME=$(echo "$FILE_PATH" | rev | cut -d'/' -f1 | rev | cut -d"." -f1)
-
-mkdir -p $BIN_DIR
 gcc $FILE_PATH -o "$BIN_DIR/$BIN_FILENAME"
