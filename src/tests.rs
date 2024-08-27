@@ -78,10 +78,8 @@ pub fn test_translation(test_name: &str, test_dir: &str, result_count: usize) {
     let result = translate_and_emulate(filename.clone(), result_count);
 
     let binary_string = format!("tests/{}/bin/{}", test_dir, test_name);
-    let compiler_output = Command::new("gcc")
+    let compiler_output = Command::new("tests/auto_build")
                                                                             .arg(filename.clone())
-                                                                            .arg("-o")
-                                                                            .arg(binary_string.clone())
                                                                             .status();
 
     match compiler_output {
