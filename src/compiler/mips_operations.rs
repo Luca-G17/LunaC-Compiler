@@ -228,6 +228,48 @@ pub(super) struct Beq {
 }
 
 #[derive(Clone)]
+pub(super) enum DirectReplaceUnaryOperandT {
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    ACos,
+    ATan,
+    Abs,
+    Ceil,
+    Floor,
+    Trunc,
+    Round,
+    Exp,
+    Log,
+    Sqrt,
+    Rand
+}
+
+#[derive(Clone)]
+pub(super) struct DirectReplaceUnaryOperand {
+    pub(super) func_type: DirectReplaceUnaryOperandT,
+    pub(super) store: VariableMapping,
+    pub(super) op_1: MipsOperand
+}
+
+#[derive(Clone)]
+pub(super) enum DirectReplaceBinaryOperandT {
+    Max,
+    Min,
+    Atan2
+}
+
+#[derive(Clone)]
+pub(super) struct DirectReplaceBinaryOperand {
+    pub(super) func_type: DirectReplaceBinaryOperandT,
+    pub(super) store: VariableMapping,
+    pub(super) op_1: MipsOperand,
+    pub(super) op_2: MipsOperand
+}
+
+
+#[derive(Clone)]
 pub(super) struct Jump {
     pub(super) label_name: String
 }
