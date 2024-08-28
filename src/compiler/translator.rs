@@ -635,11 +635,6 @@ fn variable_expr_to_mips_access<'a>(var: &VariableExpr, env: Rc<RefCell<Env<'a>>
                 if !var.ptr_to_array {
                     ops.push(MipsOperation::Add(Add { store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: local_reg_ptr, var_type: s.var_type}), op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
                 } else {
-                    if reading && !var.ptr_to_array { offset = 2; }
-                    else if !reading && var.ptr_to_array { offset = 2; }
-                    else if reading && var.ptr_to_array { 
-                        offset = 2;
-                    }
                     ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
                     ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
                 }
