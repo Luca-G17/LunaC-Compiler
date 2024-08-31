@@ -1033,7 +1033,7 @@ fn unary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pars
         }
     }
 
-    while match_token(&mut current, tokens, &Vec::from([TokenType::Bang, TokenType::Minus, TokenType::Star, TokenType::Tilde, TokenType::BitwiseAnd, TokenType::Star])) {
+    if match_token(&mut current, tokens, &Vec::from([TokenType::Bang, TokenType::Minus, TokenType::Star, TokenType::Tilde, TokenType::BitwiseAnd, TokenType::Star])) {
         let right: Box<Expr>;
         let operator = previous(current, tokens); 
         (right, current) = unary(current, tokens)?;

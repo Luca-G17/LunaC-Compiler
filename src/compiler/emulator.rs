@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::{thread, time};
 use crate::error_handler::print_stage;
 use super::mips_operations::*;
 
@@ -169,6 +170,28 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
             let result = left.floor();
             mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(result));
         },
+        MipsOperation::Sleep(o) => {
+            let left  = operand_read(registers, sp, ra, &o.op_1) as u64;
+            let seconds = time::Duration::from_secs(left);
+            thread::sleep(seconds);
+        }
+        MipsOperation::Yield(_) => {
+            thread::sleep(time::Duration::from_millis(500));
+        }
+        MipsOperation::Load(_) |
+        MipsOperation::LoadReagent(_) |
+        MipsOperation::LoadSlot(_) |
+        MipsOperation::LoadBatch(_) |
+        MipsOperation::LoadBatchSlot(_) |
+        MipsOperation::LoadBatchWithName(_) |
+        MipsOperation::LoadBatchWithNameSlot(_) |
+        MipsOperation::Store(_) |
+        MipsOperation::StoreSlot(_) |
+        MipsOperation::StoreBatch(_) |
+        MipsOperation::StoreBatchSlot(_) |
+        MipsOperation::StoreBatchWithName(_) |
+        MipsOperation::DirectReplaceUnaryOperation(_) |
+        MipsOperation::DirectReplaceBinaryOperation(_) => {}
     }
     return line_no
 }

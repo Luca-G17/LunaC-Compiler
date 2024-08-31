@@ -17,7 +17,8 @@ def pascal_case_to_all_caps(string):
 def get_item_hashes_from_url():
     response = requests.get(URL).text
     text_ptr = response.find('<tr>', 0)
-    with open("item_enum.txt", 'w', newline='') as text_file:
+    with open("item_hashes.csv", 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
         while True:
             next_ptr = response.find('<tr>', text_ptr + 1)
             if next_ptr == -1:
@@ -30,7 +31,7 @@ def get_item_hashes_from_url():
                 item_hash = table_row[4].removesuffix(" </td").strip()
                 item_decimal_hash = table_row[6].removesuffix("</td").strip("\n").strip()
                 print(f"{item_name: <50}| {item_hash: <10} | {item_decimal_hash: <10}")
-                text_file.write(f"{pascal_case_to_all_caps(item_name)},\n")
+                writer.writerow([item_name, pascal_case_to_all_caps(item_name), item_hash, item_decimal_hash])
             text_ptr = next_ptr
 
 get_item_hashes_from_url()
