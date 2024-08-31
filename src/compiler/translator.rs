@@ -54,7 +54,7 @@ struct Env<'a> {
 
 impl<'a> Env<'a> {
     fn new(mapping: Box<HashMap<String, Variable>>, functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>, frame_ptr: usize, var_count: usize, parent: Option<Rc<RefCell<Env<'a>>>>) -> Rc<RefCell<Env<'a>>> {
-        return Rc::new(RefCell::new(Env {
+        Rc::new(RefCell::new(Env {
             mapping,
             functions,
             frame_ptr,
@@ -62,7 +62,7 @@ impl<'a> Env<'a> {
             parent,
             label_ptr: 0,
             reg_ptr: 6,
-        }));
+        }))
     }
 
     fn add_var(&mut self, var_name: &Token, var_type: VarType, var_size: Vec<usize>, is_array: bool, is_ptr_to_array: bool) {
@@ -91,7 +91,7 @@ impl<'a> Env<'a> {
         }
         else {
             self.label_ptr += 1;
-            return self.label_ptr - 1;
+            self.label_ptr - 1
         }
     }
 
@@ -179,83 +179,6 @@ impl<'a> Env<'a> {
     }
 }
 
-fn variable_mapping_to_string(var: VariableMapping) -> String {
-    match var {
-        VariableMapping::RegisterMapping(m) => format!("r{}", m.reg_no),
-        VariableMapping::StackMapping(_) => panic!("Internal Compiler Error - Stack mapping failed to be pre-translated"),
-        VariableMapping::StackPointer => String::from("sp"),
-        VariableMapping::ReturnAddress => String::from("ra")
-    }
-}
-
-fn operand_to_string(oper: MipsOperand) -> String {
-    match oper {
-        MipsOperand::VariableMapping(v) => variable_mapping_to_string(v),
-        MipsOperand::Literal(l) => l
-    }
-}
-
-fn mips_binary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand, op_2: MipsOperand) -> String {
-    let mut str = String::from("");
-    let store_str= variable_mapping_to_string(store);
-    let op_1 = operand_to_string(op_1);
-    let op_2 = operand_to_string(op_2);
-    str.push_str(&format!("{} {} {} {}\n", op_str, store_str, op_1, op_2));
-    return str;
-}
-
-fn mips_unary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand) -> String {
-    let mut str = String::from("");
-    let store_str= variable_mapping_to_string(store);
-    let op_1 = operand_to_string(op_1);
-    str.push_str(&format!("{} {} {}\n", op_str, store_str, op_1));
-    return str;
-}
-
-fn mips_unary_no_store_to_string(op_str: String, op_1: MipsOperand) -> String {
-    let mut str = String::from("");
-    let op_1 = operand_to_string(op_1);
-    str.push_str(&format!("{} {}\n", op_str, op_1));
-    return str;
-}
-
-fn mips_binary_branch_to_string(branch_op_str: String, op_1: MipsOperand, op_2: MipsOperand, dest: MipsOperand) -> String {
-    let mut str = String::from("");
-    let op_1 = operand_to_string(op_1);
-    let op_2 = operand_to_string(op_2);
-    let dest = operand_to_string(dest);
-    str.push_str(&format!("{} {} {} {}\n", branch_op_str, op_1, op_2, dest));
-    return str;
-}
-
-fn mips_operation_to_string(op: MipsOperation) -> String {
-    match op {
-        MipsOperation::Add(o) => mips_binary_op_to_string(String::from("add"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sub(o) => mips_binary_op_to_string(String::from("sub"), o.store, o.op_1, o.op_2),
-        MipsOperation::Mul(o) => mips_binary_op_to_string(String::from("mul"), o.store, o.op_1, o.op_2),
-        MipsOperation::Div(o) => mips_binary_op_to_string(String::from("div"), o.store, o.op_1, o.op_2),
-        MipsOperation::Mod(o) => mips_binary_op_to_string(String::from("mod"), o.store, o.op_1, o.op_2),
-        MipsOperation::Push(o) => mips_unary_no_store_to_string(String::from("push"), o.op_1),
-        MipsOperation::Peek(o) => mips_unary_no_store_to_string(String::from("peek"), o.op_1),
-        MipsOperation::Move(o) => mips_unary_op_to_string(String::from("move"), o.store, o.op_1),
-        MipsOperation::Not(o) => mips_unary_op_to_string(String::from("not"), o.store, o.op_1),
-        MipsOperation::Label(o) => format!("{}:\n", o.label_name),
-        MipsOperation::JumpAndSave(o) => format!("jal {}\n", o.label_name),
-        MipsOperation::Jump(o) => format!("j {}\n", o.label_name),
-        MipsOperation::And(o) => mips_binary_op_to_string(String::from("and"), o.store, o.op_1, o.op_2),
-        MipsOperation::Or(o) => mips_binary_op_to_string(String::from("or"), o.store, o.op_1, o.op_2),
-        MipsOperation::Xor(o) => mips_binary_op_to_string(String::from("xor"), o.store, o.op_1, o.op_2),
-        MipsOperation::Bne(o) => mips_binary_branch_to_string(String::from("bne"), o.op_1, o.op_2, o.dest),
-        MipsOperation::Beq(o) => mips_binary_branch_to_string(String::from("beq"), o.op_1, o.op_2, o.dest),
-        MipsOperation::Seq(o) => mips_binary_op_to_string(String::from("seq"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sgt(o) => mips_binary_op_to_string(String::from("sgt"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sge(o) => mips_binary_op_to_string(String::from("sge"), o.store, o.op_1, o.op_2),
-        MipsOperation::Slt(o) => mips_binary_op_to_string(String::from("slt"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sle(o) => mips_binary_op_to_string(String::from("sle"), o.store, o.op_1, o.op_2),
-        MipsOperation::Return(_) => String::from("j ra\n"),
-        MipsOperation::Floor(o) => mips_unary_op_to_string(String::from("floor"), o.store, o.op_1),
-    }
-}
 
 fn combine_binary_operand_types(operator: &Token, op_1: MipsOperand, op_2: MipsOperand) -> (MipsOperand, MipsOperand, VarType, Vec<MipsOperation>) {
     let mut ops = Vec::new();
@@ -690,7 +613,40 @@ fn indirect_write_to_stack(result_reg: usize, lvalue_type: VarType, rhs_type: Va
     return ops;
 }
 
+
+fn direct_replaced_operation<'a>(func_name: &Token, params: &Vec<Expr<'a>>, env: Rc<RefCell<Env<'a>>>) -> Result<Option<Vec<MipsOperation>>, TranslatorError> {
+    let mut ops = Vec::new();
+    let base_reg_ptr = env.borrow().get_reg_ptr();
+    let mut store_type = VarType::Float;
+    for (i, param) in params.iter().enumerate() {
+        let (func_param_ops, _, _, param_type, _, _) = translate_ast(param, env.clone(), base_reg_ptr + i, 0, 0, true, None)?;
+        ops.extend(func_param_ops);
+        if i == 0 {
+            store_type = param_type;
+        }
+    }
+    match MipsOperation::direct_replaced_operation(&func_name.lexeme, base_reg_ptr, store_type) {
+        Some((op, required_param_c)) => {
+            if required_param_c == params.len() {
+                ops.push(op);
+                return Ok(Some(ops));
+            } else {
+                translating_error(func_name, String::from("Provided arguments do not match those specified in the function signature"));
+                return Err(TranslatorError);
+            }
+        }
+        None => {
+            return Ok(None)
+        }
+    }
+}
+
+
 fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env<'a>>>, frame_size: usize) -> Result<(Vec<MipsOperation>, VarType), TranslatorError> {
+    if let Some(ops) = direct_replaced_operation(&func_call.name, &func_call.params, env.clone())? {
+        return Ok((ops, VarType::Float));
+    }
+
     // Copy parameter expressions to memory mappings
     let mut ops = Vec::new();
     let mut ret_type = VarType::Int;
@@ -978,7 +934,7 @@ pub(super) fn translating_error(token: &Token, message: String) {
 pub(super) fn mips_operations_to_string(ops: &Vec<MipsOperation>) -> String {
     let mut ops_str = String::new();
     for op in ops {
-        let op_string = mips_operation_to_string(op.clone());
+        let op_string = MipsOperation::mips_operation_to_string(op.clone());
         ops_str.push_str(&op_string);
     }
     return ops_str;
