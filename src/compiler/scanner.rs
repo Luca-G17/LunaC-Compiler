@@ -1,4 +1,5 @@
 use crate::error_handler::error;
+use core::fmt;
 use std::collections::HashMap;
 
 #[derive(PartialEq)]
@@ -75,39 +76,40 @@ pub struct Token {
     pub line_no: usize
 }
 
-impl Token {
-    fn to_string(&self) -> String {
-        return format!("[{}]: {} {}", self.line_no, self.literal, self.lexeme);
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{}]: {} {}", self.line_no, self.literal, self.lexeme)
     }
+}
+
+impl Token {
 
     pub(super) fn generate_token(tok_type: TokenType, line_no: usize) -> Token {
-        let tok_str = tok_type_string(tok_type.clone());
+        let tok_str = tok_type_string(tok_type);
         Token { tok_type, lexeme: tok_str.clone(), literal: tok_str.clone(), line_no }
     }
 
     pub(super) fn is_bitwise_operator(&self) -> bool {
-        match self.tok_type {
+        matches!(self.tok_type, 
             TokenType::BitwiseAnd |
             TokenType::BitwiseOr |
             TokenType::BitwiseXor |
             TokenType::And |
-            TokenType::Or => true,
-            _ => false
-        }
+            TokenType::Or
+        )
     }
 
     pub(super) fn is_float_returning_operator(&self) -> bool {
-        match self.tok_type {
+        matches!(self.tok_type,
             TokenType::Plus |
             TokenType::Star |
             TokenType::Minus |
-            TokenType::Slash => true,
-            _ => false 
-        }
+            TokenType::Slash
+        )
     }
 
     pub(super) fn is_alphaneumeric(&self) -> bool {
-        self.lexeme.chars().all(|c| Scanner::is_alphaneumeric(c))
+        self.lexeme.chars().all(Scanner::is_alphaneumeric)
     }
 
 }
@@ -263,7 +265,7 @@ impl Scanner {
                     while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); }
                 }
                 else {
-                    self.add_token(t.clone(), text);
+                    self.add_token(*t, text);
                 }
             },
             None => self.add_token(TokenType::Identifier, text),
@@ -271,17 +273,17 @@ impl Scanner {
     }
 
     fn is_alphaneumeric(c: char) -> bool {
-        return Scanner::is_alpha(c) || Scanner::is_digit(c);
+        Scanner::is_alpha(c) || Scanner::is_digit(c)
     }
 
     fn is_alpha(c: char) -> bool {
-        return (c >= 'a' && c <= 'z') ||
-               (c >= 'A' && c <= 'Z') ||
-                c == '_';
+        c.is_ascii_lowercase() ||
+               c.is_ascii_uppercase() ||
+                c == '_'
     }
 
     fn is_digit(c: char) -> bool {
-        return c >= '0' && c <= '9';
+        c.is_ascii_digit()
     }
 
     fn parse_number(&mut self) {
@@ -314,7 +316,7 @@ impl Scanner {
     fn next_char(&mut self) -> char {
         let c = self.source.chars().nth(self.current).unwrap();
         self.current += 1;
-        return c;
+        c
     }
 
     fn add_token(&mut self, tok_type: TokenType, literal: String) {
@@ -332,7 +334,7 @@ impl Scanner {
         if self.source.chars().nth(self.current).unwrap() != expected { return false };
 
         self.current += 1;
-        return true; 
+        true
     }
 
     fn peek(&self) -> char {
@@ -346,19 +348,19 @@ impl Scanner {
     }
 
     fn is_at_eof(&self) -> bool {
-        return self.current == self.source.len();
+        self.current == self.source.len()
     }
 
     #[allow(dead_code)]
     fn print_tokens(&self) {
         for token in self.tokens.iter() {
-            println!("{}", token.to_string());
+            println!("{}", token);
         }
     }
 }
 
 fn init_keywords() -> HashMap<String, TokenType> {
-    return HashMap::from([
+    HashMap::from([
         (String::from("if"), TokenType::If),
         (String::from("else"), TokenType::Else),
         (String::from("while"), TokenType::While),
@@ -373,7 +375,7 @@ fn init_keywords() -> HashMap<String, TokenType> {
         (String::from("char"), TokenType::Char),
         (String::from("long"), TokenType::Long),
         (String::from("printf"), TokenType::Printf)
-    ]);
+    ])
 }
 
 pub fn scan_tokens(source: String) -> Vec<Token> {
@@ -391,5 +393,5 @@ pub fn scan_tokens(source: String) -> Vec<Token> {
     }
     scanner.tokens.push(Token {tok_type: TokenType::Eof, lexeme: String::from(""), literal: String::from(""), line_no: scanner.line_no});
     scanner.print_tokens();
-    return scanner.tokens;
+    scanner.tokens
 }

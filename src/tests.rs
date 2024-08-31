@@ -1,3 +1,4 @@
+use core::panic;
 use std::fs;
 use std::process::Command;
 
@@ -85,7 +86,7 @@ pub fn test_translation(test_name: &str, test_dir: &str, result_count: usize) {
                                                                             .status();
     match compiler_output {
         Ok(e) => assert!(e.success()),
-        Err(e) => assert!(false, "{}\n", e.to_string())
+        Err(e) => panic!("{}\n", e)
     }
 
     let execution_output = Command::new(format!("./{}", binary_string)).output();
@@ -99,7 +100,7 @@ pub fn test_translation(test_name: &str, test_dir: &str, result_count: usize) {
                 assert_eq!(*res, truth_value);
             }
         }
-        Err(e) => assert!(false, "{}\n", e.to_string())
+        Err(e) => panic!("{}\n", e)
     }
 }
 

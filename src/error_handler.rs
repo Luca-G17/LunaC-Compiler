@@ -9,6 +9,7 @@ pub fn report(line_no: usize, where_str: String, message_str: String) {
     println!("{}", line.red());
 }
 
+#[allow(dead_code)]
 pub fn warning(line_no: usize, where_str: String, message_str: String) {
     let line = format!("[line {}] Warning {}: {}", line_no, where_str, message_str);
     println!("{}", line.yellow());

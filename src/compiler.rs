@@ -18,6 +18,7 @@ fn translate(filename: String) -> Vec<MipsOperation> {
     translator::translate_statements(stmts)
 }
 
+#[allow(dead_code)]
 pub fn translate_and_print(filename: String) {
     let ops = translate(filename);
     print!("{}", translator::mips_operations_to_string(&ops));
