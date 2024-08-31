@@ -1,4 +1,6 @@
-use super::{parser::Expr, scanner::{Token, TokenType}, translator::{translating_error, TranslatorError}};
+use core::fmt;
+
+use super::{scanner::{Token, TokenType}, translator::{translating_error, TranslatorError}};
 
 #[derive(Clone)]
 pub(super) struct RegisterMapping {
@@ -22,7 +24,7 @@ pub(super) enum VarType {
 impl VarType {
     pub(super) fn from_token(tok: &Token) -> Result<Self, TranslatorError> {
         if tok.tok_type == TokenType::Int {
-            return Ok(VarType::Int)
+            Ok(VarType::Int)
         }
         else if tok.tok_type == TokenType::Float {
             return Ok(VarType::Float)
@@ -133,11 +135,6 @@ pub(super) struct Peek {
 }
 
 #[derive(Clone)]
-pub(super) struct Pop {
-    pub(super) op_1: MipsOperand,
-}
-
-#[derive(Clone)]
 pub(super) struct Label {
     pub(super) label_name: String
 }
@@ -145,11 +142,6 @@ pub(super) struct Label {
 #[derive(Clone)]
 pub(super) struct JumpAndSave {
     pub(super) label_name: String
-}
-
-#[derive(Clone)]
-pub(super) struct JumpReg {
-    pub(super) reg: MipsOperand
 }
 
 #[derive(Clone)]
@@ -247,9 +239,9 @@ pub(super) enum DirectReplaceUnaryOperationT {
     Rand,
 }
 
-impl DirectReplaceUnaryOperationT {
-    fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for DirectReplaceUnaryOperationT {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match self {
             DirectReplaceUnaryOperationT::Cos => String::from("cos"),
             DirectReplaceUnaryOperationT::Tan => String::from("tan"),
             DirectReplaceUnaryOperationT::Sin => String::from("sin"),
@@ -265,7 +257,7 @@ impl DirectReplaceUnaryOperationT {
             DirectReplaceUnaryOperationT::Log => String::from("log"),
             DirectReplaceUnaryOperationT::Sqrt => String::from("sqrt"),
             DirectReplaceUnaryOperationT::Rand => String::from("rand")
-        }
+        })
     }
 }
 
@@ -280,7 +272,7 @@ impl DirectReplaceUnaryOperation {
     fn from_func_type(func_type: DirectReplaceUnaryOperationT, base_ptr: usize, store_type: VarType) -> (MipsOperation, usize) {
         let store = VariableMapping::from_register_number(base_ptr, store_type);
         let op_1 = MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr + 1, VarType::Float));
-        return (MipsOperation::DirectReplaceUnaryOperation(DirectReplaceUnaryOperation { func_type, store, op_1 }), 2);
+        (MipsOperation::DirectReplaceUnaryOperation(DirectReplaceUnaryOperation { func_type, store, op_1 }), 2)
     }
 }
 
@@ -291,13 +283,13 @@ pub(super) enum DirectReplaceBinaryOperationT {
     Atan2
 }
 
-impl DirectReplaceBinaryOperationT {
-    fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for DirectReplaceBinaryOperationT {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match self {
             DirectReplaceBinaryOperationT::Max => String::from("max"),
             DirectReplaceBinaryOperationT::Min => String::from("min"),
             DirectReplaceBinaryOperationT::Atan2 => String::from("atan2")
-        }
+        })
     }
 }
 
@@ -314,7 +306,7 @@ impl DirectReplaceBinaryOperation {
         let store = VariableMapping::from_register_number(base_ptr, store_type);
         let op_1 = MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr + 1, VarType::Float));
         let op_2 = MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr + 2, VarType::Float));
-        return (MipsOperation::DirectReplaceBinaryOperation(DirectReplaceBinaryOperation { func_type, store, op_1, op_2 }), 3);
+        (MipsOperation::DirectReplaceBinaryOperation(DirectReplaceBinaryOperation { func_type, store, op_1, op_2 }), 3)
     }
 }
 
@@ -472,7 +464,7 @@ impl MipsOperand {
         if other_var_type == VarType::Float || self.get_var_type() == VarType::Float {
             return VarType::Float;
         }
-        return VarType::Int;
+        VarType::Int
     }
 
     pub(super) fn implicit_conversion(&self, var_type: VarType) -> (MipsOperand, Vec<MipsOperation>) {
@@ -483,14 +475,14 @@ impl MipsOperand {
                     VariableMapping::RegisterMapping(reg) => {
                         let new_op = MipsOperand::from_register_number(reg.reg_no, var_type.clone());
                         if var_type == VarType::Int && current != VarType::Int {
-                            return (new_op.clone(), Vec::from([MipsOperation::Floor(Floor { store: var.clone(), op_1: new_op.clone()})]));
+                            (new_op.clone(), Vec::from([MipsOperation::Floor(Floor { store: var.clone(), op_1: new_op.clone()})]))
                         }
                         else {
-                            return (new_op, Vec::new());
+                            (new_op, Vec::new())
                         }
                         
                     },
-                    VariableMapping::StackMapping(sta) => return (MipsOperand::from_stack_addr(sta.relative_addr, var_type), Vec::new()),
+                    VariableMapping::StackMapping(sta) => (MipsOperand::from_stack_addr(sta.relative_addr, var_type), Vec::new()),
                     _ => (self.clone(), Vec::new()),
                 }
             },
@@ -501,13 +493,11 @@ impl MipsOperand {
                     } else {
                         panic!()
                     }
-                } else {
-                    if !lit.contains('.') {
-                        (MipsOperand::from_string_literal(lit.clone() + ".0"), Vec::new())
-                    }
-                    else {
-                        (self.clone(), Vec::new())
-                    }
+                } else if !lit.contains('.') {
+                    (MipsOperand::from_string_literal(lit.clone() + ".0"), Vec::new())
+                }
+                else {
+                    (self.clone(), Vec::new())
                 }
             },
         }
@@ -581,10 +571,10 @@ impl MipsOperation {
     fn operands_to_string(operands: Vec<MipsOperand>) -> String {
         let mut str = String::from("");
         for operand in operands {
-            str.push_str(" ");
+            str.push(' ');
             str.push_str(&Self::operand_to_string(operand));
         }
-        return str;
+        str
     }
 
     fn storing_op_to_string(op_str: &str, store: VariableMapping, operands: Vec<MipsOperand>) -> String {
@@ -592,15 +582,15 @@ impl MipsOperation {
         let store_str = Self::variable_mapping_to_string(store);
         str.push_str(&store_str);
         str.push_str(&Self::operands_to_string(operands));
-        str.push_str("\n");
-        return str;
+        str.push('\n');
+        str
     }
 
     fn non_storing_op_to_string(op_str: &str, operands: Vec<MipsOperand>) -> String {
         let mut str = format!("{} ", op_str);
         str.push_str(&Self::operands_to_string(operands));
-        str.push_str("\n");
-        return str;
+        str.push('\n');
+        str
     }
 
     pub(super) fn mips_operation_to_string(op: MipsOperation) -> String {
@@ -745,6 +735,6 @@ impl MipsOperation {
             }), 4),
             _ => return None
         };
-        return Some(op);
+        Some(op)
     }
 }

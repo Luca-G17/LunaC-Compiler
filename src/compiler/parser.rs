@@ -1,5 +1,5 @@
 use crate::{compiler::scanner::{Token, TokenType}, error_handler::{print_stage, report}};
-use super::{mips_operations::VarType, scanner::tok_type_string};
+use super::scanner::tok_type_string;
 
 struct ParserError;
 
@@ -38,7 +38,7 @@ pub struct VariableExpr<'a> {
 
 #[derive(Clone)]
 pub struct ArrayIntialiserExpr<'a> {
-    pub(super) elements: Vec<Box<Expr<'a>>>,
+    pub(super) elements: Vec<Expr<'a>>,
     pub(super) brace_tok: &'a Token,
     pub(super) step_size: usize,
     pub(super) var_type: &'a Token
@@ -57,8 +57,8 @@ pub enum Expr<'a> {
     Literal(LiteralExpr<'a>),
     Unary(UnaryExpr<'a>),
     Variable(VariableExpr<'a>),
-    StoredValueExpr(StoredValueExpr),
-    ArrayIntialiserExpr(ArrayIntialiserExpr<'a>)
+    StoredValue(StoredValueExpr),
+    ArrayIntialiser(ArrayIntialiserExpr<'a>)
 }
 
 pub struct BlockStmt<'a> {
@@ -92,14 +92,12 @@ pub struct VarStmt<'a> {
     pub(super) var_type: &'a Token,
     pub(super) initialiser: Option<Box<Expr<'a>>>,
     pub(super) var_sizes: Vec<usize>,
-    pub(super) total_size: usize,
     pub(super) is_array: bool
 }
 
 pub struct AssignStmt<'a> {
     pub(super) lvalue_expr: Box<Expr<'a>>,
     pub(super) binding: Box<Expr<'a>>,
-    pub(super) equal_tok: &'a Token,
     pub(super) lvalue_var: Token
 }
 
@@ -156,10 +154,10 @@ impl<'a> Expr<'a> {
                 if left_lvalue.is_some() && (operator == TokenType::Plus || operator == TokenType::Minus) {
                     return left_lvalue; // *(lvalue + expr) | *(lvalue - expr)
                 }
-                else if !left_lvalue.is_some() && operator == TokenType::Plus {
+                else if left_lvalue.is_none() && operator == TokenType::Plus {
                     return e.right.match_l_value(false);
                 }
-                return None;
+                None
             },
             Expr::Call(_) => None,
             Expr::Grouping(e) => e.expression.match_l_value(derefed),
@@ -169,35 +167,29 @@ impl<'a> Expr<'a> {
                 e.right.match_l_value(derefed)
             },
             Expr::Variable(v) => Some(v.name.clone()),
-            Expr::StoredValueExpr(_) => None,
-            Expr::ArrayIntialiserExpr(_) => None,
+            Expr::StoredValue(_) => None,
+            Expr::ArrayIntialiser(_) => None,
         }
     }
 
     // Computes the maximum length of each node at each level in the tree
     fn array_initialiser_sizes(&self, depth: usize, max_lengths: &mut Vec<usize>) {
-        match self {
-            Expr::ArrayIntialiserExpr(init) => {
-                for element in &init.elements {
-                    element.array_initialiser_sizes(depth + 1, max_lengths);
-                }
-                while depth >= max_lengths.len() { max_lengths.push(0); }
-                max_lengths[depth] = max_lengths[depth].max(init.elements.len());
+        if let Expr::ArrayIntialiser(init) = self {
+            for element in &init.elements {
+                element.array_initialiser_sizes(depth + 1, max_lengths);
             }
-            _ => ()
+            while depth >= max_lengths.len() { max_lengths.push(0); }
+            max_lengths[depth] = max_lengths[depth].max(init.elements.len());
         }
     }
 
     fn propogate_sizes_and_type(&mut self, depth: usize, sizes: &Vec<usize>, var_type: &'a Token) {
-        match self {
-            Expr::ArrayIntialiserExpr(init) => {
-                for element in &mut init.elements {
-                    element.propogate_sizes_and_type(depth + 1, sizes, var_type)
-                }
-                init.step_size = sizes[(depth+1)..sizes.len()].into_iter().fold(1, |acc, e| acc * e);
-                init.var_type = var_type;
-            },
-            _ => ()
+        if let Expr::ArrayIntialiser(init) = self {
+            for element in &mut init.elements {
+                element.propogate_sizes_and_type(depth + 1, sizes, var_type)
+            }
+            init.step_size = sizes[(depth+1)..sizes.len()].iter().product::<usize>();
+            init.var_type = var_type;
         }
     }
 }
@@ -205,7 +197,7 @@ impl<'a> Expr<'a> {
 pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
     match stmt {
         Stmt::Function(s) => {
-            let mut str = String::from(format!("{} {}(", s.ret_type.lexeme, s.name.lexeme));
+            let mut str = format!("{} {}(", s.ret_type.lexeme, s.name.lexeme);
             for (i, param) in s.params.iter().enumerate() {
                 match param {
                     Stmt::Variable(p) => {
@@ -220,57 +212,57 @@ pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
             }
             str.push(')');
             str.push_str(&pretty_print_stmt(&s.body, depth));
-            return str;
+            str
         },
         Stmt::Variable(s) => {
-            let mut str = String::from(format!("{} {}", s.var_type.lexeme, s.var_name.lexeme));
+            let mut str = format!("{} {}", s.var_type.lexeme, s.var_name.lexeme);
             match s.initialiser.clone() {
-                Some(init) => str.push_str(&format!(" = {};\n", ast_pretty_printer(init))),
+                Some(init) => str.push_str(&format!(" = {};\n", ast_pretty_printer(*init))),
                 None => str.push_str(";\n"),
             }
-            return str;
+            str
         },
         Stmt::Expression(s) => {
-            return ast_pretty_printer(s.expression.clone())
+            ast_pretty_printer(*s.expression.clone())
         }
         Stmt::While(s) => {
-            let mut str = String::from(format!("while ({})", ast_pretty_printer(s.condition.clone())));
+            let mut str = format!("while ({})", ast_pretty_printer(*s.condition.clone()));
             str.push_str(&pretty_print_stmt(&s.body, depth));
-            return str;
+            str
         }
         Stmt::Block(s) => {
             let depth = depth + 1;
             let mut str = String::from("");
             str.push_str(" {\n");
             for stmt in s.statements.iter() {
-                str.push_str(&format!("{}{}", indent_depth(depth), pretty_print_stmt(&stmt, depth)));
+                str.push_str(&format!("{}{}", indent_depth(depth), pretty_print_stmt(stmt, depth)));
             }
             str.push_str(&format!("{}}}\n", indent_depth(depth - 1)));
-            return str;
+            str
         }
         Stmt::For(s) => {
             let variant_str = { 
                 match &s.variant {
-                    Some(v) => pretty_print_stmt(&v, depth),
+                    Some(v) => pretty_print_stmt(v, depth),
                     None => String::from("  "),
                 }
             };
 
             let incrementer_str = {
                 match &s.incrementer {
-                    Some(i) => pretty_print_stmt(&i, depth),
+                    Some(i) => pretty_print_stmt(i, depth),
                     None => String::from("  "),
                 }
             };
             
             // Remove that last two characters ';' and '\n'
-            let mut str = String::from(format!("for ({}; {}; {})", 
+            let mut str = format!("for ({}; {}; {})", 
                 &variant_str[..(variant_str.len() - 2)], 
-                ast_pretty_printer(s.condition.clone()), 
-                &incrementer_str[..(incrementer_str.len() - 2)]));
+                ast_pretty_printer(*s.condition.clone()), 
+                &incrementer_str[..(incrementer_str.len() - 2)]);
 
             str.push_str(&pretty_print_stmt(&s.body, depth));
-            return str;
+            str
         },
         Stmt::If(s) => {
             let mut str = String::from("");
@@ -283,7 +275,7 @@ pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
                 if i != s.branches.len() - 1 || s.branches.len() == 1 {
                     let first_cond_str = {
                         match s.conditions.get(i) {
-                            Some(c) => ast_pretty_printer(Box::new(c.clone())),
+                            Some(c) => ast_pretty_printer(c.clone()),
                             None => todo!(),
                         }
                     };
@@ -298,20 +290,20 @@ pub fn pretty_print_stmt(stmt: &Stmt, depth: usize) -> String {
                     None => todo!(),
                 }
             }
-            return str;
+            str
         },
-        Stmt::Assign(s) => String::from(format!("{} = {};\n", ast_pretty_printer(s.lvalue_expr.clone()), ast_pretty_printer(s.binding.clone()))),
-        Stmt::Return(s) => String::from(format!("return {};\n", ast_pretty_printer(s.value.clone()))),
+        Stmt::Assign(s) => format!("{} = {};\n", ast_pretty_printer(*s.lvalue_expr.clone()), ast_pretty_printer(*s.binding.clone())),
+        Stmt::Return(s) => format!("return {};\n", ast_pretty_printer(*s.value.clone())),
         Stmt::FunctionCall(s) => {
             let mut str = format!("{}(", s.name.lexeme);
             for (i, expr) in s.params.iter().enumerate() {
-                str.push_str(&ast_pretty_printer(Box::new(expr.clone())));
+                str.push_str(&ast_pretty_printer(*Box::new(expr.clone())));
                 if i != s.params.len() - 1 {
                     str.push_str(", ");
                 }
             }
             str.push_str(");\n");
-            return str;
+            str
         }
     }
 }
@@ -323,47 +315,47 @@ fn indent_depth(depth: usize) -> String {
         str.push_str("    ");
         i += 1;
     }
-    return str;
+    str
 }
 
-fn parenthesize_expr(expr: Box<Expr>) -> String {
-    match *expr {
-        Expr::Binary(e) => parenthesize(e.operator.lexeme.clone(), Vec::from([e.left, e.right])),
-        Expr::Grouping(e) => parenthesize(String::from("group"), Vec::from([e.expression])),
+fn parenthesize_expr(expr: Expr) -> String {
+    match expr {
+        Expr::Binary(e) => parenthesize(e.operator.lexeme.clone(), Vec::from([*e.left, *e.right])),
+        Expr::Grouping(e) => parenthesize(String::from("group"), Vec::from([*e.expression])),
         Expr::Literal(e) => {
             match e.value {
-                Some(v) => String::from(v.lexeme.clone()),
+                Some(v) => v.lexeme.clone(),
                 None => String::from("")
             }
         },
-        Expr::Unary(e) => parenthesize(e.operator.lexeme.clone(), Vec::from([e.right])),
+        Expr::Unary(e) => parenthesize(e.operator.lexeme.clone(), Vec::from([*e.right])),
         Expr::Variable(e) => parenthesize(e.name.lexeme.clone(), Vec::from([])),
         Expr::Call(e) => {
             let call_stmt = Stmt::FunctionCall(e.call.clone());
             let str = pretty_print_stmt(&call_stmt, 0);
-            (&str[..str.len() - 2]).to_string()
+            str[..str.len() - 2].to_string()
         },
-        Expr::StoredValueExpr(sto) => format!("{}", sto.value),
-        Expr::ArrayIntialiserExpr(array_init) => parenthesize(String::from("{}"), array_init.elements),
+        Expr::StoredValue(sto) => format!("{}", sto.value),
+        Expr::ArrayIntialiser(array_init) => parenthesize(String::from("{}"), array_init.elements),
     }
 } 
 
-fn parenthesize(name: String, exprs: Vec<Box<Expr>>) -> String {
+fn parenthesize(name: String, exprs: Vec<Expr>) -> String {
     let mut result = String::from("(");
     result.push_str(&name);
     for expr in exprs {
-        result.push_str(" ");
+        result.push(' ');
         result.push_str(&parenthesize_expr(expr));
     }
-    result.push_str(")");
-    return result;
+    result.push(')');
+    result
 }
 
-pub fn ast_pretty_printer(expr: Box<Expr>) -> String {
-    return parenthesize_expr(expr)
+pub fn ast_pretty_printer(expr: Expr) -> String {
+    parenthesize_expr(expr)
 }
 
-pub fn parse(tokens: &Vec<Token>) -> Vec<Stmt> {
+pub fn parse(tokens: &[Token]) -> Vec<Stmt> {
     let mut statements: Vec<Stmt> = vec![];
     let mut current = 0;
 
@@ -382,10 +374,10 @@ pub fn parse(tokens: &Vec<Token>) -> Vec<Stmt> {
     }
 
     print_stage(parsed_str, String::from("PARSED CODE:"));
-    return statements;
+    statements
 }
 
-fn block_statement<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize, ret_type: &'a Token) -> Result<(BlockStmt<'a>, usize), ParserError> {
+fn block_statement<'a>(current: usize, tokens: &'a [Token], depth: usize, ret_type: &'a Token) -> Result<(BlockStmt<'a>, usize), ParserError> {
     let mut current = current;
 
     // Start of block
@@ -396,7 +388,7 @@ fn block_statement<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize, ret
 
     let mut stmts: Vec<Stmt> = Vec::new();
     while !(match_token(&mut current, tokens, &Vec::from([TokenType::RightBrace]))) {
-        let stmt_res = parse_tokens_and_generate_stmt(current, tokens, depth + 1, false, &ret_type);
+        let stmt_res = parse_tokens_and_generate_stmt(current, tokens, depth + 1, false, ret_type);
         match stmt_res {
             Ok((stmt, c)) => { 
                 stmts.push(stmt); 
@@ -405,10 +397,10 @@ fn block_statement<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize, ret
             Err(_) => return Err(ParserError)
         }
     }
-    return Ok((BlockStmt { statements: stmts }, current));
+    Ok((BlockStmt { statements: stmts }, current))
 }
 
-fn for_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn for_statement<'a>(current: usize, tokens: &'a [Token], ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     // Structure:
     // for (initialisation; condition; expression) Block
     // All three are optional 
@@ -423,7 +415,7 @@ fn for_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token
         init = None;
     }
     else {
-        let initialisation = parse_tokens_and_generate_stmt(current, tokens, 2, true, &ret_type);
+        let initialisation = parse_tokens_and_generate_stmt(current, tokens, 2, true, ret_type);
         match initialisation {
             Ok((stmt, c)) => {
                 match stmt {
@@ -441,7 +433,7 @@ fn for_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token
 
     let condition;
     if match_token(&mut current, tokens, &Vec::from([TokenType::Semicolon])) {
-        condition = Box::new(Expr::StoredValueExpr(StoredValueExpr { value: 1 } ));
+        condition = Box::new(Expr::StoredValue(StoredValueExpr { value: 1 } ));
     }
     else {
         match expression_statement(current, tokens) {
@@ -456,7 +448,7 @@ fn for_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token
         incrementer = None;
     }
     else {
-        match parse_tokens_and_generate_stmt(current, tokens, 2, true, &ret_type) {
+        match parse_tokens_and_generate_stmt(current, tokens, 2, true, ret_type) {
             Ok((stmt, c)) => {
                 if let Stmt::Assign(_) = stmt {
                     incrementer = Some(Box::new(stmt));
@@ -472,7 +464,7 @@ fn for_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token
     }
 
     let body;
-    match block_statement(current, tokens, 2, &ret_type) {
+    match block_statement(current, tokens, 2, ret_type) {
         Ok((b, c)) => (body, current) = (Box::new(Stmt::Block(b)), c),
         Err(_) => return Err(ParserError),
     }
@@ -485,7 +477,7 @@ fn for_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token
     }), current));
 }
 
-fn while_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn while_statement<'a>(current: usize, tokens: &'a [Token], ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
     (_, current) = consume_token(TokenType::LeftParen, String::from("Expect '(' after while."), current, tokens);
 
@@ -498,7 +490,7 @@ fn while_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Tok
     (_, current) = consume_token(TokenType::RightParen, String::from("Expect ')' after condition."), current, tokens);
 
     let body;
-    match block_statement(current, tokens, 2, &ret_type) {
+    match block_statement(current, tokens, 2, ret_type) {
         Ok((b, c)) => (body, current) = (b, c),
         Err(_) => return Err(ParserError)
     }
@@ -509,7 +501,7 @@ fn while_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Tok
     }), current));
 }
 
-fn if_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn if_statement<'a>(current: usize, tokens: &'a [Token], ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     // List of condition block pairs
     let mut current = current;
     let mut conditions = Vec::new();
@@ -528,7 +520,7 @@ fn if_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token)
         
             (_, current) = consume_token(TokenType::RightParen, String::from("Expect ')' after condition."), current, tokens);
             
-            match block_statement(current, tokens, 2, &ret_type) {
+            match block_statement(current, tokens, 2, ret_type) {
                 Ok((branch, c)) => {
                     branches.push(Stmt::Block(branch));
                     current = c;
@@ -542,7 +534,7 @@ fn if_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token)
 
     if previous(current, tokens).tok_type == TokenType::Else {
         conditions.push(Expr::Literal(LiteralExpr { value: None }));
-        match block_statement(current, tokens, 2, &ret_type) {
+        match block_statement(current, tokens, 2, ret_type) {
             Ok((branch, c)) => {
                 branches.push(Stmt::Block(branch));
                 current = c;
@@ -557,7 +549,7 @@ fn if_statement<'a>(current: usize, tokens: &'a Vec<Token>, ret_type: &'a Token)
     }), current));
 }
 
-fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifier: &'a Token, inline: bool) -> Result<(Stmt<'a>, usize), ParserError> {
+fn function_call_statement<'a>(current: usize, tokens: &'a [Token], identifier: &'a Token, inline: bool) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
     let mut params: Vec<Expr> = Vec::new();
     while !match_token(&mut current, tokens, &Vec::from([TokenType::RightParen])) {
@@ -591,7 +583,7 @@ fn function_call_statement<'a>(current: usize, tokens: &'a Vec<Token>, identifie
 
 
 
-fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: bool) -> Result<(Stmt, usize), ParserError> {
+fn assignment_statement(current: usize, tokens: &[Token], inline_statement: bool) -> Result<(Stmt, usize), ParserError> {
     let mut current = current;
     let lhs_expr;
     (lhs_expr, current) = expression(current - 1, tokens)?;
@@ -637,7 +629,6 @@ fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: b
             return Ok((Stmt::Assign(AssignStmt {
                 lvalue_expr: lhs_expr,
                 binding,
-                equal_tok: assignment_type,
                 lvalue_var
             }), current));
         }
@@ -645,14 +636,14 @@ fn assignment_statement(current: usize, tokens: &Vec<Token>, inline_statement: b
             return Err(ParserError);
         }
     }
-    return Err(ParserError)
+    Err(ParserError)
 }
 
-fn generate_statement<'a>(current: usize, tokens: &'a Vec<Token>, inline_statement: bool, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn generate_statement<'a>(current: usize, tokens: &'a [Token], inline_statement: bool, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
-    if match_token(&mut current, tokens, &Vec::from([TokenType::While])) { return while_statement(current, tokens, &ret_type); }
-    else if match_token(&mut current, tokens, &Vec::from([TokenType::For])) { return for_statement(current, tokens, &ret_type); }
-    else if match_token(&mut current, tokens, &Vec::from([TokenType::If])) { return if_statement(current, tokens, &ret_type); }
+    if match_token(&mut current, tokens, &Vec::from([TokenType::While])) { return while_statement(current, tokens, ret_type); }
+    else if match_token(&mut current, tokens, &Vec::from([TokenType::For])) { return for_statement(current, tokens, ret_type); }
+    else if match_token(&mut current, tokens, &Vec::from([TokenType::If])) { return if_statement(current, tokens, ret_type); }
     else if match_token(&mut current, tokens, &Vec::from([TokenType::Identifier, TokenType::Star, TokenType::LeftParen])) {
         let identifier = previous(current, tokens);
         if identifier.is_alphaneumeric() && match_token(&mut current, tokens, &Vec::from([TokenType::LeftParen])) {
@@ -674,37 +665,37 @@ fn generate_statement<'a>(current: usize, tokens: &'a Vec<Token>, inline_stateme
     }
 
     println!("{}", peek(current, tokens).lexeme);
-    return Err(ParserError);
+    Err(ParserError)
 }
 
-fn expression_statement(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn expression_statement(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return expression(current, tokens); 
 }
 
-fn parse_tokens_and_generate_stmt<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize, inline_statement: bool, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn parse_tokens_and_generate_stmt<'a>(current: usize, tokens: &'a [Token], depth: usize, inline_statement: bool, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
     if match_token(&mut current, tokens, &Vec::from([TokenType::Int, TokenType::Float, TokenType::Double, TokenType::Char])) {
         let var_dec_opt = variable_declaration(current, tokens, inline_statement, depth);
         match var_dec_opt {
             Ok((stmt, c)) => {
-                return Ok((stmt, c)); 
+                Ok((stmt, c))
             },
             Err(_) => {
                 current = error_synchronise(current, tokens);
                 return Ok((Stmt::Expression(ExprStmt {
-                    expression: Box::new(Expr::StoredValueExpr(StoredValueExpr { value: 1 }))
+                    expression: Box::new(Expr::StoredValue(StoredValueExpr { value: 1 }))
                 }), current));
             }
         }
     }
     else {
-        let stmt_opt = generate_statement(current, tokens, inline_statement, &ret_type);
+        let stmt_opt = generate_statement(current, tokens, inline_statement, ret_type);
         match stmt_opt {
-            Ok((s, c)) => return Ok((s, c)),
+            Ok((s, c)) => Ok((s, c)),
             Err(_) => {
                 current = error_synchronise(current, tokens);
                 return Ok((Stmt::Expression(ExprStmt {
-                    expression: Box::new(Expr::StoredValueExpr(StoredValueExpr { value: 1 }))
+                    expression: Box::new(Expr::StoredValue(StoredValueExpr { value: 1 }))
                 }
                 ), current));
             }
@@ -713,11 +704,11 @@ fn parse_tokens_and_generate_stmt<'a>(current: usize, tokens: &'a Vec<Token>, de
 }
 
 // Depth argument prevents nested functions
-fn function_declaration<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize, func_name: &'a Token, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
+fn function_declaration<'a>(current: usize, tokens: &'a [Token], depth: usize, func_name: &'a Token, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
 
     if depth > 1 {
-        parsing_error(&peek(current, tokens), String::from("Nested functions are not allowed."));
+        parsing_error(peek(current, tokens), String::from("Nested functions are not allowed."));
         return Err(ParserError);
     }
 
@@ -743,7 +734,7 @@ fn function_declaration<'a>(current: usize, tokens: &'a Vec<Token>, depth: usize
         }
     }
 
-    let block_stmts = block_statement(current, tokens, depth, &ret_type);
+    let block_stmts = block_statement(current, tokens, depth, ret_type);
     let is_main = func_name.lexeme == "main";
     match block_stmts {
         Ok((stmts, c)) => {
@@ -776,7 +767,7 @@ fn variable_size(init: Option<Box<Expr>>, specified_lens: &Vec<Option<usize>>, v
     }
 
     if let Some(var_init) = init {
-        if let Expr::ArrayIntialiserExpr(_) = *var_init {}
+        if let Expr::ArrayIntialiser(_) = *var_init {}
         else {
             return Ok(Vec::from([1]));
         }
@@ -806,10 +797,10 @@ fn variable_size(init: Option<Box<Expr>>, specified_lens: &Vec<Option<usize>>, v
     }
     
     result_lengths.push(1);
-    return Ok(result_lengths);
+    Ok(result_lengths)
 }
 
-fn variable_declaration<'a>(current: usize, tokens: &'a Vec<Token>, is_func_arg: bool, depth: usize) -> Result<(Stmt, usize), ParserError> {
+fn variable_declaration(current: usize, tokens: &[Token], is_func_arg: bool, depth: usize) -> Result<(Stmt, usize), ParserError> {
     let mut current = current;
     let var_type = previous(current, tokens);
     let mut is_array = false;
@@ -861,20 +852,18 @@ fn variable_declaration<'a>(current: usize, tokens: &'a Vec<Token>, is_func_arg:
 
     let var_sizes = variable_size(initialiser.clone(), &array_lens, var_name)?;
     if let Some(ref mut init) = initialiser { init.propogate_sizes_and_type(0, &var_sizes, var_type) }
-    let total_size = var_sizes.clone().into_iter().reduce(|acc, e| (acc * e)).unwrap(); 
     
     return Ok((Stmt::Variable(VarStmt {
         var_name,
         var_type,
         initialiser,
         var_sizes,
-        total_size,
         is_array
     }), current));
 
 }
 
-fn error_synchronise(current: usize, tokens: &Vec<Token>) -> usize {
+fn error_synchronise(current: usize, tokens: &[Token]) -> usize {
     let mut current = current;
     next_token(&mut current, tokens);
 
@@ -890,10 +879,10 @@ fn error_synchronise(current: usize, tokens: &Vec<Token>) -> usize {
         }
         next_token(&mut current, tokens);
     }
-    return current;
+    current
 }
 
-fn consume_token(token_type: TokenType, message: String, current: usize, tokens: &Vec<Token>) -> (&Token, usize) {
+fn consume_token(token_type: TokenType, message: String, current: usize, tokens: &[Token]) -> (&Token, usize) {
     let mut current = current;
     if check_token(current, tokens, &token_type) {
         return (next_token(&mut current, tokens), current);
@@ -902,7 +891,7 @@ fn consume_token(token_type: TokenType, message: String, current: usize, tokens:
     return (peek(current, tokens), current);
 }
 
-fn expression(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn expression(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return logical_or(current, tokens);
 }
 
@@ -916,7 +905,7 @@ fn parsing_error(token: &Token, message: String) {
 }
 
 
-fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn primary(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     let mut current = current;
     
     if match_token(&mut current, tokens, &Vec::from([TokenType::False, TokenType::True, TokenType::String, TokenType::Number])) {
@@ -976,16 +965,16 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
         let mut exprs = Vec::new();
 
         while !match_token(&mut current, tokens, &Vec::from([TokenType::RightBrace])) {
-            if exprs.len() >= 1 {
+            if !exprs.is_empty() {
                 (_, current) = consume_token(TokenType::Comma, String::from("Expect ',' delimiting expressions."), current, tokens);
             }
             let expr;
             (expr, current) = expression(current, tokens)?;
-            exprs.push(expr);
+            exprs.push(*expr);
         }
 
         let size = &exprs.len();
-        let ret_expr = Box::new(Expr::ArrayIntialiserExpr(ArrayIntialiserExpr {
+        let ret_expr = Box::new(Expr::ArrayIntialiser(ArrayIntialiserExpr {
             elements: exprs,
             brace_tok,
             step_size: *size,
@@ -1005,10 +994,10 @@ fn primary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pa
     }
 
     // parsing_error(peek(current, tokens), String::from("Expect expression."));
-    return Err(ParserError);
+    Err(ParserError)
 }
 
-fn unary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn unary(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     let mut current = current;
     let current_tok = peek(current, tokens);
 
@@ -1044,10 +1033,10 @@ fn unary(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), Pars
         return Ok((expr, current));
     }
 
-    return Ok(primary(current, tokens)?);
+    return primary(current, tokens);
 }
 
-fn ast_binary_operation<'a>(current: usize, tokens: &'a Vec<Token>, token_types: &Vec<TokenType>, preceding_op: impl Fn(usize, &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError>) -> Result<(Box<Expr<'a>>, usize), ParserError> {
+fn ast_binary_operation<'a>(current: usize, tokens: &'a [Token], token_types: &Vec<TokenType>, preceding_op: impl Fn(usize, &[Token]) -> Result<(Box<Expr>, usize), ParserError>) -> Result<(Box<Expr<'a>>, usize), ParserError> {
     let (mut expr, mut current) = preceding_op(current, tokens)?;
 
     while match_token(&mut current, tokens, token_types) {
@@ -1060,50 +1049,50 @@ fn ast_binary_operation<'a>(current: usize, tokens: &'a Vec<Token>, token_types:
             operator: operator.clone()
         }));
     }
-    return Ok((expr, current));
+    Ok((expr, current))
 }
 
-fn factor(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn factor(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::Star, TokenType::Slash, TokenType::Percent]), unary);
 }
 
-fn term(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn term(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::Minus, TokenType::Plus]), factor);
 }
 
-fn shifting(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn shifting(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::LeftShift, TokenType::RightShift]), term);
 }
 
-fn comparison(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn comparison(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::Greater, TokenType::GreaterEqual, TokenType::Less, TokenType::LessEqual]), shifting);
 }
 
-fn equality(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn equality(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::BangEqual, TokenType::EqualEqual]), comparison);
 }
 
-fn bitwise_and(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn bitwise_and(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::BitwiseAnd]), equality);
 }
 
-fn bitwise_xor(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn bitwise_xor(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::BitwiseXor]), bitwise_and);
 }
 
-fn bitwise_or(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn bitwise_or(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::BitwiseOr]), bitwise_xor);
 }
 
-fn logical_and(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn logical_and(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::And]), bitwise_or);
 }
 
-fn logical_or(current: usize, tokens: &Vec<Token>) -> Result<(Box<Expr>, usize), ParserError> {
+fn logical_or(current: usize, tokens: &[Token]) -> Result<(Box<Expr>, usize), ParserError> {
     return ast_binary_operation(current, tokens, &Vec::from([TokenType::Or]), logical_and);
 }
 
-fn match_token(current: &mut usize, tokens: &Vec<Token>, types: &Vec<TokenType>) -> bool {
+fn match_token(current: &mut usize, tokens: &[Token], types: &Vec<TokenType>) -> bool {
     for token_type in types {
         if check_token(*current, tokens, token_type) {
             next_token(current, tokens);
@@ -1111,35 +1100,35 @@ fn match_token(current: &mut usize, tokens: &Vec<Token>, types: &Vec<TokenType>)
         }
     }
 
-    return false;
+    false
 }
 
-fn previous(current: usize, tokens: &Vec<Token>) -> &Token {
+fn previous(current: usize, tokens: &[Token]) -> &Token {
     match tokens.get(current - 1) {
         Some(token) => token,
         None => panic!("What the hell man!")
     }    
 }
 
-fn next(current: usize, tokens: &Vec<Token>) -> Option<&Token> {
+fn next(current: usize, tokens: &[Token]) -> Option<&Token> {
     return tokens.get(current + 1);
 }
 
-fn next_token<'a>(current: &mut usize, tokens: &'a Vec<Token>) -> &'a Token {
+fn next_token<'a>(current: &mut usize, tokens: &'a [Token]) -> &'a Token {
     if !is_at_eof(*current, tokens) { *current += 1; }
     return previous(*current, tokens);
 }
 
-fn is_at_eof(current: usize, tokens: &Vec<Token>) -> bool {
+fn is_at_eof(current: usize, tokens: &[Token]) -> bool {
     return peek(current, tokens).tok_type == TokenType::Eof;
 }
 
-fn check_token(current: usize, tokens: &Vec<Token>, token_type: &TokenType) -> bool {
+fn check_token(current: usize, tokens: &[Token], token_type: &TokenType) -> bool {
     if is_at_eof(current, tokens) { return false; }
     return peek(current, tokens).tok_type == *token_type;
 }
 
-fn peek<'a>(current: usize, tokens: &'a Vec<Token>) -> &'a Token {
+fn peek(current: usize, tokens: &[Token]) -> &Token {
     match tokens.get(current) {
         Some(token) => token,
         None => panic!("What the hell man!")
