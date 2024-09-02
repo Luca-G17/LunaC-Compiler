@@ -1,6 +1,10 @@
-use core::fmt;
+use std::{collections::HashMap, fs};
+
+use lazy_static::lazy_static;
 
 use super::{scanner::{Token, TokenType}, translator::{translating_error, TranslatorError}};
+
+const SPECIAL_FUNCTIONS_PATH: &str = "scripts/game_types.json";
 
 #[derive(Clone)]
 pub(super) struct RegisterMapping {
@@ -221,199 +225,16 @@ pub(super) struct Beq {
 }
 
 #[derive(Clone)]
-pub(super) enum DirectReplaceUnaryOperationT {
-    Sin,
-    Cos,
-    Tan,
-    ASin,
-    ACos,
-    ATan,
-    Abs,
-    Ceil,
-    Floor,
-    Trunc,
-    Round,
-    Exp,
-    Log,
-    Sqrt,
-    Rand,
-}
-
-impl fmt::Display for DirectReplaceUnaryOperationT {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            DirectReplaceUnaryOperationT::Cos => String::from("cos"),
-            DirectReplaceUnaryOperationT::Tan => String::from("tan"),
-            DirectReplaceUnaryOperationT::Sin => String::from("sin"),
-            DirectReplaceUnaryOperationT::ASin => String::from("asin"),
-            DirectReplaceUnaryOperationT::ACos => String::from("acos"),
-            DirectReplaceUnaryOperationT::ATan => String::from("atan"),
-            DirectReplaceUnaryOperationT::Abs => String::from("abs"),
-            DirectReplaceUnaryOperationT::Ceil => String::from("ceil"),
-            DirectReplaceUnaryOperationT::Floor => String::from("floor"),
-            DirectReplaceUnaryOperationT::Trunc => String::from("trunc"),
-            DirectReplaceUnaryOperationT::Round => String::from("round"),
-            DirectReplaceUnaryOperationT::Exp => String::from("exp"),
-            DirectReplaceUnaryOperationT::Log => String::from("log"),
-            DirectReplaceUnaryOperationT::Sqrt => String::from("sqrt"),
-            DirectReplaceUnaryOperationT::Rand => String::from("rand")
-        })
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct DirectReplaceUnaryOperation {
-    pub(super) func_type: DirectReplaceUnaryOperationT,
+pub(super) struct StoringOperation {
     pub(super) store: VariableMapping,
-    pub(super) op_1: MipsOperand
-}
-
-impl DirectReplaceUnaryOperation {
-    fn from_func_type(func_type: DirectReplaceUnaryOperationT, base_ptr: usize, store_type: VarType) -> (MipsOperation, usize) {
-        let store = VariableMapping::from_register_number(base_ptr, store_type);
-        let op_1 = MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr + 1, VarType::Float));
-        (MipsOperation::DirectReplaceUnaryOperation(DirectReplaceUnaryOperation { func_type, store, op_1 }), 2)
-    }
+    pub(super) operands: Vec<MipsOperand>,
+    pub(super) op_str: String
 }
 
 #[derive(Clone)]
-pub(super) enum DirectReplaceBinaryOperationT {
-    Max,
-    Min,
-    Atan2
-}
-
-impl fmt::Display for DirectReplaceBinaryOperationT {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            DirectReplaceBinaryOperationT::Max => String::from("max"),
-            DirectReplaceBinaryOperationT::Min => String::from("min"),
-            DirectReplaceBinaryOperationT::Atan2 => String::from("atan2")
-        })
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct DirectReplaceBinaryOperation {
-    pub(super) func_type: DirectReplaceBinaryOperationT,
-    pub(super) store: VariableMapping,
-    pub(super) op_1: MipsOperand,
-    pub(super) op_2: MipsOperand
-}
-
-impl DirectReplaceBinaryOperation {
-    fn from_func_type(func_type: DirectReplaceBinaryOperationT, base_ptr: usize, store_type: VarType) -> (MipsOperation, usize) {
-        let store = VariableMapping::from_register_number(base_ptr, store_type);
-        let op_1 = MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr + 1, VarType::Float));
-        let op_2 = MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr + 2, VarType::Float));
-        (MipsOperation::DirectReplaceBinaryOperation(DirectReplaceBinaryOperation { func_type, store, op_1, op_2 }), 3)
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct Yield {}
-
-#[derive(Clone)]
-pub(super) struct Sleep {
-    pub(super) op_1: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct Load {
-    pub(super) store: VariableMapping,
-    pub(super) device_id: MipsOperand,
-    pub(super) device_variable_type: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct LoadReagent {
-    pub(super) store: VariableMapping,
-    pub(super) device_id: MipsOperand,
-    pub(super) reagent_mode: MipsOperand,
-    pub(super) reagent_hash: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct LoadSlot {
-    pub(super) store: VariableMapping,
-    pub(super) device_id: MipsOperand,
-    pub(super) slot_index: MipsOperand,
-    pub(super) slot_variable_type: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct LoadBatch {
-    pub(super) store: VariableMapping,
-    pub(super) device_type: MipsOperand,
-    pub(super) device_variable_type: MipsOperand,
-    pub(super) batch_mode: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct LoadBatchSlot {
-    pub(super) store: VariableMapping,
-    pub(super) device_type: MipsOperand,
-    pub(super) slot_index: MipsOperand,
-    pub(super) slot_variable_type: MipsOperand,
-    pub(super) batch_mode: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct LoadBatchWithName {
-    pub(super) store: VariableMapping,
-    pub(super) device_type: MipsOperand,
-    pub(super) device_name: MipsOperand,
-    pub(super) device_variable_type: MipsOperand,
-    pub(super) batch_mode: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct LoadBatchWithNameSlot {
-    pub(super) store: VariableMapping,
-    pub(super) device_type: MipsOperand,
-    pub(super) device_name: MipsOperand,
-    pub(super) slot_index: MipsOperand,
-    pub(super) slot_variable_type: MipsOperand,
-    pub(super) batch_mode: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct Store {
-    pub(super) device_id: MipsOperand,
-    pub(super) device_variable_type: MipsOperand,
-    pub(super) source: MipsOperand   
-}
-
-#[derive(Clone)]
-pub(super) struct StoreSlot {
-    pub(super) device_id: MipsOperand,
-    pub(super) slot_index: MipsOperand,
-    pub(super) slot_variable_type: MipsOperand,
-    pub(super) source: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct StoreBatch {
-    pub(super) device_type: MipsOperand,
-    pub(super) device_variable_type: MipsOperand,
-    pub(super) source: MipsOperand
-}
-
-
-#[derive(Clone)]
-pub(super) struct StoreBatchWithName {
-    pub(super) device_type: MipsOperand,
-    pub(super) device_name: MipsOperand,
-    pub(super) device_variable_type: MipsOperand,
-    pub(super) source: MipsOperand
-}
-
-#[derive(Clone)]
-pub(super) struct StoreBatchSlot {
-    pub(super) device_type: MipsOperand,
-    pub(super) slot_index: MipsOperand,
-    pub(super) slot_variable_type: MipsOperand,
-    pub(super) source: MipsOperand
+pub(super) struct NonStoringOperation {
+    pub(super) operands: Vec<MipsOperand>,
+    pub(super) op_str: String
 }
 
 #[derive(Clone)]
@@ -431,7 +252,52 @@ pub(super) enum MipsOperand {
     Literal(String)
 }
 
+pub struct SpecialFunction {
+    args: Vec<String>,
+    mips_name: String,
+    storing: bool,
+}
+
+lazy_static! {
+    static ref FUNCTIONS: HashMap<String, SpecialFunction> = {
+        let mut m = HashMap::new();
+        let functions_str = fs::read_to_string(SPECIAL_FUNCTIONS_PATH).expect("Failed to read special functions json file.");
+        let functions_json = json::parse(&functions_str).unwrap();
+        if let json::JsonValue::Array(function_arr) = &functions_json["special_functions"] {
+            for function in function_arr {
+                let identifier = match &function["identifier"] {
+                    json::JsonValue::String(iden) => iden.to_string(),
+                    _ => "".to_string()
+                };
+
+                let mips_name = match &function["mips_name"] {
+                    json::JsonValue::String(name) => name.to_string(),
+                    _ => "".to_string()
+                };
+                let mut args = vec![];
+                if let json::JsonValue::Array(args_arr) = &function["args"] {
+                    for arg in args_arr {
+                        if let json::JsonValue::Array(arg_type_arr) = arg {
+                            if let json::JsonValue::String(type_arg) = &arg_type_arr[0] {
+                                args.push(type_arg.clone());
+                            }
+                        }
+                    }
+                }
+                let storing = match &function["storing"] {
+                    json::JsonValue::Boolean(storing_bool) => *storing_bool,
+                    _ => false
+                };
+                
+                m.insert(identifier, SpecialFunction { args, mips_name, storing });
+            }
+        }
+        m
+    };
+}
+
 impl MipsOperand {
+
     pub(super) fn from_unsigned_literal(integer: usize) -> Self {
         MipsOperand::Literal(format!("{}", integer))
     }
@@ -530,24 +396,8 @@ pub(super) enum MipsOperation {
     JumpAndSave(JumpAndSave),
     Jump(Jump),
     Return(Return),
-    Sleep(Sleep),
-    Yield(Yield),
-    Load(Load),
-    LoadReagent(LoadReagent),
-    LoadSlot(LoadSlot),
-    LoadBatch(LoadBatch),
-    LoadBatchSlot(LoadBatchSlot),
-    LoadBatchWithName(LoadBatchWithName),
-    LoadBatchWithNameSlot(LoadBatchWithNameSlot),
-    Store(Store),
-    StoreSlot(StoreSlot),
-    StoreBatch(StoreBatch),
-    StoreBatchSlot(StoreBatchSlot),
-    StoreBatchWithName(StoreBatchWithName),
-    DirectReplaceUnaryOperation
-(DirectReplaceUnaryOperation
-),
-    DirectReplaceBinaryOperation(DirectReplaceBinaryOperation)
+    StoringOperation(StoringOperation),
+    NonStoringOperation(NonStoringOperation)
 }
 
 impl MipsOperation {
@@ -619,122 +469,26 @@ impl MipsOperation {
             MipsOperation::Sle(o) => Self::storing_op_to_string("sle", o.store, vec![o.op_1, o.op_2]),
             MipsOperation::Return(_) => String::from("j ra\n"),
             MipsOperation::Floor(o) => Self::storing_op_to_string("floor", o.store, vec![o.op_1]),
-            MipsOperation::Sleep(o) => Self::non_storing_op_to_string("sleep", vec![o.op_1]),
-            MipsOperation::Yield(_) => String::from("yield\n"),
-            MipsOperation::Load(o) => Self::storing_op_to_string("l", o.store, vec![o.device_id, o.device_variable_type]),
-            MipsOperation::LoadReagent(o) => Self::storing_op_to_string("lr", o.store, vec![o.device_id, o.reagent_mode, o.reagent_hash]),
-            MipsOperation::LoadSlot(o) => Self::storing_op_to_string("ls", o.store, vec![o.device_id, o.slot_index, o.slot_variable_type]),
-            MipsOperation::LoadBatchSlot(o) => Self::storing_op_to_string("lbs", o.store, vec![o.device_type, o.slot_index, o.slot_variable_type, o.batch_mode]),
-            MipsOperation::LoadBatch(o) => Self::storing_op_to_string("lb", o.store, vec![o.device_type, o.device_variable_type, o.batch_mode]),
-            MipsOperation::LoadBatchWithName(o) => Self::storing_op_to_string("lbn", o.store, vec![o.device_type, o.device_name, o.device_variable_type, o.batch_mode]),
-            MipsOperation::LoadBatchWithNameSlot(o) => Self::storing_op_to_string("lbns", o.store, vec![o.device_type, o.device_name, o.slot_index, o.slot_variable_type, o.batch_mode]),
-            MipsOperation::Store(o) => Self::non_storing_op_to_string("s", vec![o.device_id, o.device_variable_type, o.source]),
-            MipsOperation::StoreSlot(o) => Self::non_storing_op_to_string("ss", vec![o.device_id, o.slot_index, o.slot_variable_type, o.source]),
-            MipsOperation::StoreBatch(o) => Self::non_storing_op_to_string("sb", vec![o.device_type, o.device_variable_type, o.source]),
-            MipsOperation::StoreBatchSlot(o) => Self::non_storing_op_to_string("sbs", vec![o.device_type, o.slot_index, o.slot_variable_type, o.source]),
-            MipsOperation::StoreBatchWithName(o) => Self::non_storing_op_to_string("sbn", vec![o.device_type, o.device_name, o.device_variable_type, o.source]),
-            MipsOperation::DirectReplaceUnaryOperation(o) => Self::storing_op_to_string(&o.func_type.to_string(), o.store, vec![o.op_1]),
-            MipsOperation::DirectReplaceBinaryOperation(o) => Self::storing_op_to_string(&o.func_type.to_string(), o.store, vec![o.op_1, o.op_2]),
+            MipsOperation::StoringOperation(o) => Self::storing_op_to_string(&o.op_str, o.store, o.operands),
+            MipsOperation::NonStoringOperation(o) => Self::non_storing_op_to_string(&o.op_str, o.operands),
         }
     }
 
-    pub(super) fn direct_replaced_operation(op_str: &str, base_ptr: usize, store_type: VarType) -> Option<(MipsOperation, usize)> {
-        let op = match op_str {
-            "m_sin" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Sin, base_ptr, store_type),
-            "m_cos" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Cos, base_ptr, store_type),
-            "m_tan" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Tan, base_ptr, store_type),
-            "m_acos" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::ACos, base_ptr, store_type),
-            "m_asin" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::ASin, base_ptr, store_type),
-            "m_atan" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::ATan, base_ptr, store_type),
-            "m_abs" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Abs, base_ptr, store_type),
-            "m_ceil" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Ceil, base_ptr, store_type),
-            "m_floor" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Floor, base_ptr, store_type),
-            "m_trunc" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Trunc, base_ptr, store_type),
-            "m_round" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Round, base_ptr, store_type),
-            "m_exp" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Exp, base_ptr, store_type),
-            "m_log" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Log, base_ptr, store_type),
-            "m_sqrt" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Sqrt, base_ptr, store_type),
-            "m_rand" => DirectReplaceUnaryOperation::from_func_type(DirectReplaceUnaryOperationT::Rand, base_ptr, store_type),
-            "m_atan2" => DirectReplaceBinaryOperation::from_func_type(DirectReplaceBinaryOperationT::Atan2, base_ptr, store_type),
-            "m_max" => DirectReplaceBinaryOperation::from_func_type(DirectReplaceBinaryOperationT::Max, base_ptr, store_type),
-            "m_min" => DirectReplaceBinaryOperation::from_func_type(DirectReplaceBinaryOperationT::Min, base_ptr, store_type),
-            "m_sleep" => (MipsOperation::Sleep(Sleep { op_1: MipsOperand::VariableMapping(VariableMapping::from_register_number(base_ptr, VarType::Float)) }), 1),
-            "m_yield" => (MipsOperation::Yield(Yield {}), 0),
-            "load" => (MipsOperation::Load(Load { 
-                store: VariableMapping::from_register_number(base_ptr, store_type),
-                device_id: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                device_variable_type: MipsOperand::from_register_number(base_ptr + 2, VarType::Int) 
-            }), 3),
-            "load_reagent" => (MipsOperation::LoadReagent(LoadReagent { 
-                store: VariableMapping::from_register_number(base_ptr, store_type),
-                device_id: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                reagent_mode: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                reagent_hash: MipsOperand::from_register_number(base_ptr + 3, VarType::Int)
-            }), 4),
-            "load_slot" => (MipsOperation::LoadSlot(LoadSlot { 
-                store: VariableMapping::from_register_number(base_ptr, store_type),
-                device_id: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                slot_index: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                slot_variable_type: MipsOperand::from_register_number(base_ptr + 3, VarType::Int)
-            }), 4),
-            "load_batch" => (MipsOperation::LoadBatch(LoadBatch { 
-                store: VariableMapping::from_register_number(base_ptr, store_type), 
-                device_type: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                device_variable_type: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                batch_mode: MipsOperand::from_register_number(base_ptr + 3, VarType::Int) 
-            }), 4),
-            "load_batch_slot" => (MipsOperation::LoadBatchSlot(LoadBatchSlot {
-                store: VariableMapping::from_register_number(base_ptr, store_type),
-                device_type: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                slot_index: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                slot_variable_type: MipsOperand::from_register_number(base_ptr + 3, VarType::Int),
-                batch_mode: MipsOperand::from_register_number(base_ptr + 4, VarType::Int) 
-            }), 5),
-            "load_batch_with_name" => (MipsOperation::LoadBatchWithName(LoadBatchWithName {
-                store: VariableMapping::from_register_number(base_ptr, store_type),
-                device_type: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                device_name: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                device_variable_type: MipsOperand::from_register_number(base_ptr + 3, VarType::Int),
-                batch_mode: MipsOperand::from_register_number(base_ptr + 4, VarType::Int) 
-            }), 5),
-            "load_batch_with_name_slot" => (MipsOperation::LoadBatchWithNameSlot(LoadBatchWithNameSlot {
-                store: VariableMapping::from_register_number(base_ptr, store_type),
-                device_type: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                device_name: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                slot_index: MipsOperand::from_register_number(base_ptr + 3, VarType::Int),
-                slot_variable_type: MipsOperand::from_register_number(base_ptr + 4, VarType::Int),
-                batch_mode: MipsOperand::from_register_number(base_ptr + 5, VarType::Int) 
-            }), 6),
-            "store" => (MipsOperation::Store(Store {
-                device_id: MipsOperand::from_register_number(base_ptr, VarType::Int),
-                device_variable_type: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                source: MipsOperand::from_register_number(base_ptr + 2, VarType::Int) 
-            }), 3),
-            "store_slot" => (MipsOperation::StoreSlot(StoreSlot {
-                device_id: MipsOperand::from_register_number(base_ptr, VarType::Int),
-                slot_index: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                slot_variable_type: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                source: MipsOperand::from_register_number(base_ptr + 3, VarType::Int) 
-            }), 4),
-            "store_batch" => (MipsOperation::StoreBatch(StoreBatch {
-                device_type: MipsOperand::from_register_number(base_ptr, VarType::Int),
-                device_variable_type: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                source: MipsOperand::from_register_number(base_ptr + 2, VarType::Int) 
-            }), 3),
-            "store_batch_with_name" => (MipsOperation::StoreBatchWithName(StoreBatchWithName {
-                device_type: MipsOperand::from_register_number(base_ptr, VarType::Int),
-                device_name: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                device_variable_type: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                source: MipsOperand::from_register_number(base_ptr + 3, VarType::Int) 
-            }), 4),
-            "store_batch_slot" => (MipsOperation::StoreBatchSlot(StoreBatchSlot {
-                device_type: MipsOperand::from_register_number(base_ptr, VarType::Int),
-                slot_index: MipsOperand::from_register_number(base_ptr + 1, VarType::Int),
-                slot_variable_type: MipsOperand::from_register_number(base_ptr + 2, VarType::Int),
-                source: MipsOperand::from_register_number(base_ptr + 3, VarType::Int) 
-            }), 4),
-            _ => return None
-        };
-        Some(op)
+    pub(super) fn is_direct_replaced(op_str: &str) -> bool {
+        FUNCTIONS.contains_key(op_str)
+    }
+
+    // Returns the corresponding mips operation + it's number of required arguments
+    // If the function is attempting to store into a pointer - store the value in the base_ptr+1, preventing us from overwriting the address stored in base_ptr
+    pub(super) fn direct_replaced_operation(op_str: &str, base_ptr: usize, operands: Vec<MipsOperand>, store_type: VarType) -> Option<(MipsOperation, usize, bool)>{
+        FUNCTIONS.get(op_str).map(|func_template| ({
+            if func_template.storing {
+                let mut store_ptr = base_ptr;
+                if !func_template.args.is_empty() && func_template.args[0] == "float*" { store_ptr += 1;}
+                MipsOperation::StoringOperation(StoringOperation { op_str: func_template.mips_name.clone(), store: VariableMapping::from_register_number(store_ptr, store_type), operands })
+            } else {
+                MipsOperation::NonStoringOperation(NonStoringOperation { op_str: func_template.mips_name.clone(), operands })
+            } 
+        }, func_template.args.len(), !func_template.args.is_empty() && func_template.args[0] == "float*" ))
     }
 }

@@ -10,7 +10,7 @@ use super::mips_operations::*;
 
 const NUM_REGISTERS: usize = 16;
 const STACK_BASE_REGISTER: usize = 0;
-
+const CRC_ALG: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 impl<'a> Hash for FuncStmt<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -615,20 +615,51 @@ fn indirect_write_to_stack(result_reg: usize, lvalue_type: VarType, rhs_type: Va
 
 
 fn direct_replaced_operation<'a>(func_name: &Token, params: &[Expr<'a>], env: Rc<RefCell<Env<'a>>>) -> Result<Option<Vec<MipsOperation>>, TranslatorError> {
+    if !MipsOperation::is_direct_replaced(&func_name.lexeme) { return Ok(None) }
+
     let mut ops = Vec::new();
     let base_reg_ptr = env.borrow().get_reg_ptr();
     let mut store_type = VarType::Float;
+    
+    if func_name.lexeme == "HASH" {
+        if params.len() == 1 {
+            if let Expr::Literal(str_literal) = &params[0] {
+                if let Some(value) = str_literal.value {
+                    // TODO: This is quite jank because the scanner captures the quote marks as part of the string
+                    let hash = CRC_ALG.checksum(&value.lexeme.as_bytes()[1..(value.lexeme.len() - 1)]) as i32;
+                    ops.push(MipsOperation::Move(Move { store: VariableMapping::from_register_number(base_reg_ptr, VarType::Int), op_1: MipsOperand::Literal(format!("{}", hash)) }));
+                    return Ok(Some(ops));
+                }
+            }
+        }
+
+        translating_error(func_name, String::from("Provided arguments do not match those specified in the function signature - Note HASH requires a string literal (this may change when I get round to implementing strings properly)"));
+        return Err(TranslatorError);
+    }
+
+    let mut operands = vec![];
     for (i, param) in params.iter().enumerate() {
-        let (func_param_ops, _, _, param_type, _, _) = translate_ast(param, env.clone(), base_reg_ptr + i, 0, 0, true, None)?;
-        ops.extend(func_param_ops);
-        if i == 0 {
-            store_type = param_type;
+        if let Expr::Literal(lit) = param {
+            if let Some(literal_tok) = lit.value {
+                operands.push(MipsOperand::Literal(literal_tok.lexeme.clone()));
+            }
+        } else {
+            let (func_param_ops, _, _, param_type, _, _) = translate_ast(param, env.clone(), base_reg_ptr + i, 0, 0, true, None)?;
+            ops.extend(func_param_ops);
+            if i == 0 {
+                store_type = param_type.clone();
+            }
+            operands.push(MipsOperand::from_register_number(base_reg_ptr + i, param_type));
         }
     }
-    match MipsOperation::direct_replaced_operation(&func_name.lexeme, base_reg_ptr, store_type) {
-        Some((op, required_param_c)) => {
+    match MipsOperation::direct_replaced_operation(&func_name.lexeme, base_reg_ptr, operands, store_type) {
+        Some((op, required_param_c, deref_store)) => {
             if required_param_c == params.len() {
                 ops.push(op);
+                if deref_store {
+                    ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(base_reg_ptr, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", -1)) }));
+                    ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(base_reg_ptr + 1, VarType::Float) }));
+                }
                 Ok(Some(ops))
             } else {
                 translating_error(func_name, String::from("Provided arguments do not match those specified in the function signature"));

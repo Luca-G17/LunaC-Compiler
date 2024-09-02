@@ -1,6 +1,41 @@
+use lazy_static::lazy_static;
+
 use crate::error_handler::error;
 use core::fmt;
-use std::collections::HashMap;
+use std::{collections::HashMap, fs};
+
+const GAME_TYPES_PATH: &str = "scripts/game_types.json";
+
+lazy_static! {
+    static ref SPECIAL_ENUMS: Vec<CEnum> = {
+        let game_types_str = fs::read_to_string(GAME_TYPES_PATH).expect("Failed to read game_types.json");
+        let game_types = json::parse(&game_types_str).unwrap();
+        let mut enums = vec![];
+
+        // TODO: This is a mess but kinda fine cause its only used once - if I need to json parse again I may write a template parser.
+        if let json::JsonValue::Array(catagories) = &game_types["type_catagories"] {
+            for catagory in catagories {
+                if let json::JsonValue::String(identifier) = &catagory["identifier"] {
+                    let mut variants = vec![];
+                    if let json::JsonValue::Array(json_variants) = &catagory["variants"] {
+                        for variant in json_variants {
+                            if let json::JsonValue::String(variant_str) = variant {
+                                variants.push(variant_str.to_string());
+                            }
+                        }
+                    }
+                    enums.push(CEnum { identifier: identifier.to_string(), variants })
+                }
+            }
+        }
+        enums
+    };
+}
+
+struct CEnum {
+    identifier: String,
+    variants: Vec<String>
+}
 
 #[derive(PartialEq)]
 #[derive(Clone)]
@@ -120,7 +155,7 @@ struct Scanner {
     line_no: usize,
     tokens: Vec<Token>,
     source: String,
-    keywords: HashMap<String, TokenType>
+    keywords: HashMap<String, TokenType>,
 }
 
 impl Scanner {
@@ -254,6 +289,17 @@ impl Scanner {
         }
     } 
 
+    fn index_of_replacement(replacee: &str) -> Option<usize> {
+        for c_enum in SPECIAL_ENUMS.iter() {
+            for (i, variant) in c_enum.variants.iter().enumerate() {
+                if variant == replacee {
+                    return Some(i);
+                }
+            }
+        }
+        None
+    }
+
     fn parse_identifier(&mut self) {
         while Scanner::is_alphaneumeric(self.peek()) { self.next_char(); }
 
@@ -268,7 +314,12 @@ impl Scanner {
                     self.add_token(*t, text);
                 }
             },
-            None => self.add_token(TokenType::Identifier, text),
+            None =>  {
+                match Scanner::index_of_replacement(&text) {
+                    Some(i) => self.add_token(TokenType::Number, format!("{}", i)),
+                    None => self.add_token(TokenType::Identifier, text)
+                }
+            },
         }
     }
 
@@ -385,7 +436,7 @@ pub fn scan_tokens(source: String) -> Vec<Token> {
         line_no: 1,
         tokens: Vec::new(),
         source,
-        keywords: init_keywords()
+        keywords: init_keywords(),
     };
     while !scanner.is_at_eof() {
         scanner.start = scanner.current;

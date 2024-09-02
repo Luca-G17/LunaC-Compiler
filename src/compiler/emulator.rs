@@ -170,28 +170,16 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
             let result = left.floor();
             mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(result));
         },
-        MipsOperation::Sleep(o) => {
-            let left  = operand_read(registers, sp, ra, &o.op_1) as u64;
-            let seconds = time::Duration::from_secs(left);
-            thread::sleep(seconds);
+        MipsOperation::NonStoringOperation(o) => {
+            if o.op_str == "sleep" {
+                let left  = operand_read(registers, sp, ra, &o.operands[0]) as u64;
+                let seconds = time::Duration::from_secs(left);
+                thread::sleep(seconds);
+            } else if o.op_str == "yield" {
+                thread::sleep(time::Duration::from_millis(500));
+            }
         }
-        MipsOperation::Yield(_) => {
-            thread::sleep(time::Duration::from_millis(500));
-        }
-        MipsOperation::Load(_) |
-        MipsOperation::LoadReagent(_) |
-        MipsOperation::LoadSlot(_) |
-        MipsOperation::LoadBatch(_) |
-        MipsOperation::LoadBatchSlot(_) |
-        MipsOperation::LoadBatchWithName(_) |
-        MipsOperation::LoadBatchWithNameSlot(_) |
-        MipsOperation::Store(_) |
-        MipsOperation::StoreSlot(_) |
-        MipsOperation::StoreBatch(_) |
-        MipsOperation::StoreBatchSlot(_) |
-        MipsOperation::StoreBatchWithName(_) |
-        MipsOperation::DirectReplaceUnaryOperation(_) |
-        MipsOperation::DirectReplaceBinaryOperation(_) => {}
+        MipsOperation::StoringOperation(_) => (),
     }
     line_no
 }
