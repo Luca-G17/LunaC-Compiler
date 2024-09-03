@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::error_handler::{general_warning, report};
+use super::library_constructs::SpecialConstants;
 use super::parser::{FuncCallStmt, FuncStmt, UnaryExpr, VariableExpr};
 use super::{parser::{Stmt, Expr}, scanner::{Token, TokenType}};
 use super::mips_operations::*;
@@ -421,10 +422,18 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             Ok((ops, var_ptr, max_deref_depth.max(deref_depth), store_type, returning_literal_opt, array_ptr_opt))
         },
         Expr::Literal(e)  => {
-            let val_str =match e.value {
+            let mut val_str = match e.value {
                 Some(v) => v.lexeme.clone(),
                 None => String::from("1")
             };
+
+            if val_str.chars().any(|c| !c.is_numeric() && c != '.') {
+                val_str = match SpecialConstants::index_at_constant_without_type(&val_str) {
+                    Some(i) => format!("{}", i),
+                    None => "0".to_string(),
+                };
+            }
+
             let value = MipsOperand::Literal(val_str.clone());
             let store_type = value.get_var_type();
             let store = VariableMapping::from_register_number(var_ptr, store_type.clone());

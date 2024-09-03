@@ -306,6 +306,13 @@ impl MipsOperand {
                 }
             },
             MipsOperand::Literal(lit) => { 
+                let mut lit = lit.clone();
+                if lit.chars().any(|c| !c.is_numeric() && c != '.') {
+                    lit = match SpecialConstants::index_at_constant_without_type(&lit) {
+                        Some(i) => format!("{}", i),
+                        None => "0".to_string(),
+                    };
+                }
                 if var_type == VarType::Int {
                     if let Some(prefix) = lit.split('.').next() {
                         (MipsOperand::from_string_literal(prefix.to_string()), Vec::new()) 

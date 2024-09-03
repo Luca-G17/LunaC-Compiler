@@ -142,6 +142,15 @@ impl SpecialConstants {
         None
     }
 
+    pub(super) fn index_at_constant_without_type(constant: &str) -> Option<usize> {
+        for key in  SPECIAL_CONSTANTS.mips_items.keys().chain(SPECIAL_CONSTANTS.mips_types.keys()) {
+            if let Some(i) = SpecialConstants::index_at_constant(constant, key) {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     pub(super) fn index_at_constant(constant: &str, const_type: &str) -> Option<usize> {
         if let Some(c_enum) = SPECIAL_CONSTANTS.mips_items.get(const_type) {
             for (i, item) in c_enum.iter().enumerate() {
