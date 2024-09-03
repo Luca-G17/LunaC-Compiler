@@ -427,7 +427,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                 None => String::from("1")
             };
 
-            if val_str.chars().any(|c| !c.is_numeric() && c != '.') {
+            if val_str.chars().any(|c| !c.is_numeric() && c != '.' && c != '-') {
                 val_str = match SpecialConstants::index_at_constant_without_type(&val_str) {
                     Some(i) => format!("{}", i),
                     None => "0".to_string(),

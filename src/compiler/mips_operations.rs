@@ -307,7 +307,7 @@ impl MipsOperand {
             },
             MipsOperand::Literal(lit) => { 
                 let mut lit = lit.clone();
-                if lit.chars().any(|c| !c.is_numeric() && c != '.') {
+                if lit.chars().any(|c| !c.is_numeric() && c != '.'  && c != '-') {
                     lit = match SpecialConstants::index_at_constant_without_type(&lit) {
                         Some(i) => format!("{}", i),
                         None => "0".to_string(),
