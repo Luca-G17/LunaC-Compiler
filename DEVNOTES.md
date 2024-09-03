@@ -13,7 +13,7 @@
 ### Parser ToDo
 - [X] Add pretty printing for statement tree for debugging
 - [X] Support for variable declartion/initialisation in statement tree
-- [X] Support for function declaration in statement tree
+- [X] Support for function declaration in statement trees
 - [X] Support for while loop in statement tree
 - [X] Support for for loop in statement tree
 - [X] Support for if statement in statement tree

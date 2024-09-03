@@ -4,13 +4,14 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::error_handler::{general_warning, report};
+use super::library_constructs::SpecialConstants;
 use super::parser::{FuncCallStmt, FuncStmt, UnaryExpr, VariableExpr};
 use super::{parser::{Stmt, Expr}, scanner::{Token, TokenType}};
 use super::mips_operations::*;
 
 const NUM_REGISTERS: usize = 16;
 const STACK_BASE_REGISTER: usize = 0;
-
+const CRC_ALG: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 impl<'a> Hash for FuncStmt<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -34,7 +35,7 @@ struct Variable {
 }
 
 impl Variable {
-    fn step_size(&self, depth: usize, reading: bool) -> usize {
+    fn step_size(&self, depth: usize) -> usize {
         return self.size[depth..].iter().fold(1, |acc, s| s * acc);
     } 
 }
@@ -43,7 +44,7 @@ impl<'a> Eq for FuncStmt<'a> {}
 
 #[derive(Clone)]
 struct Env<'a> {
-    mapping: Box<HashMap<String, Variable>>,
+    mapping: HashMap<String, Variable>,
     functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>,
     frame_ptr: usize,
     var_count: usize,
@@ -53,8 +54,8 @@ struct Env<'a> {
 }
 
 impl<'a> Env<'a> {
-    fn new(mapping: Box<HashMap<String, Variable>>, functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>, frame_ptr: usize, var_count: usize, parent: Option<Rc<RefCell<Env<'a>>>>) -> Rc<RefCell<Env<'a>>> {
-        return Rc::new(RefCell::new(Env {
+    fn new(mapping: HashMap<String, Variable>, functions: Rc<RefCell<HashMap<String, &'a FuncStmt<'a>>>>, frame_ptr: usize, var_count: usize, parent: Option<Rc<RefCell<Env<'a>>>>) -> Rc<RefCell<Env<'a>>> {
+        Rc::new(RefCell::new(Env {
             mapping,
             functions,
             frame_ptr,
@@ -62,7 +63,7 @@ impl<'a> Env<'a> {
             parent,
             label_ptr: 0,
             reg_ptr: 6,
-        }));
+        }))
     }
 
     fn add_var(&mut self, var_name: &Token, var_type: VarType, var_size: Vec<usize>, is_array: bool, is_ptr_to_array: bool) {
@@ -91,7 +92,7 @@ impl<'a> Env<'a> {
         }
         else {
             self.label_ptr += 1;
-            return self.label_ptr - 1;
+            self.label_ptr - 1
         }
     }
 
@@ -100,7 +101,7 @@ impl<'a> Env<'a> {
             return parent.borrow().get_label_ptr();
         }
         else {
-            return self.label_ptr;
+            self.label_ptr
         }
     }
 
@@ -109,7 +110,7 @@ impl<'a> Env<'a> {
             return parent.borrow().get_reg_ptr();
         }
         else {
-            return self.reg_ptr;
+            self.reg_ptr
         }
     }
 
@@ -130,7 +131,7 @@ impl<'a> Env<'a> {
         }
 
         translating_error(var_name_tok, String::from("Variable does not exist in current scope"));
-        return Err(TranslatorError);
+        Err(TranslatorError)
     }
 
     fn get_variable(&self, var_name: &Token) -> Result<Variable, TranslatorError> {
@@ -161,7 +162,7 @@ impl<'a> Env<'a> {
 
     fn add_function(&mut self, function: &'a FuncStmt<'a>) -> Result<(), TranslatorError> {
         if self.functions.borrow().contains_key(&function.name.lexeme) {
-            translating_error(&function.name, format!("Found two definitions for function: {}", function.name.lexeme));
+            translating_error(function.name, format!("Found two definitions for function: {}", function.name.lexeme));
             return Err(TranslatorError);
         }
         self.functions.borrow_mut().insert(function.name.lexeme.clone(), function);
@@ -170,92 +171,15 @@ impl<'a> Env<'a> {
 
     fn get_function<'b>(&'b self, func_call: &'b Token) -> Option<&'b FuncStmt> {
         match self.functions.borrow().get(&func_call.lexeme) {
-            Some(func_stmt) => return Some(*func_stmt),
+            Some(func_stmt) => Some(*func_stmt),
             None => {
-                translating_error(&func_call, format!("No definition for function found: {}", func_call.lexeme));
-                return None;
+                translating_error(func_call, format!("No definition for function found: {}", func_call.lexeme));
+                None
             },
         }
     }
 }
 
-fn variable_mapping_to_string(var: VariableMapping) -> String {
-    match var {
-        VariableMapping::RegisterMapping(m) => format!("r{}", m.reg_no),
-        VariableMapping::StackMapping(_) => panic!("Internal Compiler Error - Stack mapping failed to be pre-translated"),
-        VariableMapping::StackPointer => String::from("sp"),
-        VariableMapping::ReturnAddress => String::from("ra")
-    }
-}
-
-fn operand_to_string(oper: MipsOperand) -> String {
-    match oper {
-        MipsOperand::VariableMapping(v) => variable_mapping_to_string(v),
-        MipsOperand::Literal(l) => l
-    }
-}
-
-fn mips_binary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand, op_2: MipsOperand) -> String {
-    let mut str = String::from("");
-    let store_str= variable_mapping_to_string(store);
-    let op_1 = operand_to_string(op_1);
-    let op_2 = operand_to_string(op_2);
-    str.push_str(&format!("{} {} {} {}\n", op_str, store_str, op_1, op_2));
-    return str;
-}
-
-fn mips_unary_op_to_string(op_str: String, store: VariableMapping, op_1: MipsOperand) -> String {
-    let mut str = String::from("");
-    let store_str= variable_mapping_to_string(store);
-    let op_1 = operand_to_string(op_1);
-    str.push_str(&format!("{} {} {}\n", op_str, store_str, op_1));
-    return str;
-}
-
-fn mips_unary_no_store_to_string(op_str: String, op_1: MipsOperand) -> String {
-    let mut str = String::from("");
-    let op_1 = operand_to_string(op_1);
-    str.push_str(&format!("{} {}\n", op_str, op_1));
-    return str;
-}
-
-fn mips_binary_branch_to_string(branch_op_str: String, op_1: MipsOperand, op_2: MipsOperand, dest: MipsOperand) -> String {
-    let mut str = String::from("");
-    let op_1 = operand_to_string(op_1);
-    let op_2 = operand_to_string(op_2);
-    let dest = operand_to_string(dest);
-    str.push_str(&format!("{} {} {} {}\n", branch_op_str, op_1, op_2, dest));
-    return str;
-}
-
-fn mips_operation_to_string(op: MipsOperation) -> String {
-    match op {
-        MipsOperation::Add(o) => mips_binary_op_to_string(String::from("add"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sub(o) => mips_binary_op_to_string(String::from("sub"), o.store, o.op_1, o.op_2),
-        MipsOperation::Mul(o) => mips_binary_op_to_string(String::from("mul"), o.store, o.op_1, o.op_2),
-        MipsOperation::Div(o) => mips_binary_op_to_string(String::from("div"), o.store, o.op_1, o.op_2),
-        MipsOperation::Mod(o) => mips_binary_op_to_string(String::from("mod"), o.store, o.op_1, o.op_2),
-        MipsOperation::Push(o) => mips_unary_no_store_to_string(String::from("push"), o.op_1),
-        MipsOperation::Peek(o) => mips_unary_no_store_to_string(String::from("peek"), o.op_1),
-        MipsOperation::Move(o) => mips_unary_op_to_string(String::from("move"), o.store, o.op_1),
-        MipsOperation::Not(o) => mips_unary_op_to_string(String::from("not"), o.store, o.op_1),
-        MipsOperation::Label(o) => format!("{}:\n", o.label_name),
-        MipsOperation::JumpAndSave(o) => format!("jal {}\n", o.label_name),
-        MipsOperation::Jump(o) => format!("j {}\n", o.label_name),
-        MipsOperation::And(o) => mips_binary_op_to_string(String::from("and"), o.store, o.op_1, o.op_2),
-        MipsOperation::Or(o) => mips_binary_op_to_string(String::from("or"), o.store, o.op_1, o.op_2),
-        MipsOperation::Xor(o) => mips_binary_op_to_string(String::from("xor"), o.store, o.op_1, o.op_2),
-        MipsOperation::Bne(o) => mips_binary_branch_to_string(String::from("bne"), o.op_1, o.op_2, o.dest),
-        MipsOperation::Beq(o) => mips_binary_branch_to_string(String::from("beq"), o.op_1, o.op_2, o.dest),
-        MipsOperation::Seq(o) => mips_binary_op_to_string(String::from("seq"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sgt(o) => mips_binary_op_to_string(String::from("sgt"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sge(o) => mips_binary_op_to_string(String::from("sge"), o.store, o.op_1, o.op_2),
-        MipsOperation::Slt(o) => mips_binary_op_to_string(String::from("slt"), o.store, o.op_1, o.op_2),
-        MipsOperation::Sle(o) => mips_binary_op_to_string(String::from("sle"), o.store, o.op_1, o.op_2),
-        MipsOperation::Return(_) => String::from("j ra\n"),
-        MipsOperation::Floor(o) => mips_unary_op_to_string(String::from("floor"), o.store, o.op_1),
-    }
-}
 
 fn combine_binary_operand_types(operator: &Token, op_1: MipsOperand, op_2: MipsOperand) -> (MipsOperand, MipsOperand, VarType, Vec<MipsOperation>) {
     let mut ops = Vec::new();
@@ -276,7 +200,7 @@ fn combine_binary_operand_types(operator: &Token, op_1: MipsOperand, op_2: MipsO
     ops.extend(conv_ops);
     let (new_op_2, conv_ops) = op_2.implicit_conversion(combined_type);
     ops.extend(conv_ops);
-    return (new_op_1, new_op_2, ret_type, ops);
+    (new_op_1, new_op_2, ret_type, ops)
 }
 
 fn mips_binary_operation(operator: &Token, var_ptr: usize, op_1: MipsOperand, op_2: MipsOperand) -> (Vec<MipsOperation>, VarType) {
@@ -303,7 +227,7 @@ fn mips_binary_operation(operator: &Token, var_ptr: usize, op_1: MipsOperand, op
     };
 
     ops.push(op);
-    return (ops, store_type);
+    (ops, store_type)
 }
 
 fn unary_operand_types(operator: &Token, operand: MipsOperand) -> (MipsOperand, VarType, Vec<MipsOperation>) {
@@ -316,7 +240,7 @@ fn unary_operand_types(operator: &Token, operand: MipsOperand) -> (MipsOperand, 
     }
 
     let ret_type = operand.get_var_type();
-    return (operand, ret_type, Vec::new());
+    (operand, ret_type, Vec::new())
 }
 
 
@@ -340,10 +264,11 @@ fn mips_unary_operation(operator: &Token, var_ptr: usize, operand: &mut MipsOper
         TokenType::BitwiseAnd => (),
         _ => panic!("Internal compiler error - not a unary operation")
     }
-    return (ops, store_type);
+    (ops, store_type)
 }
 
-fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, stack_addr: usize, deref_depth: usize, reading: bool, indirect_write_operations: Option<Vec<MipsOperation>>) -> Result<(Vec<MipsOperation>, usize, usize, VarType, Option<String>, Option<Token>), TranslatorError> {
+type AstTranslation = (Vec<MipsOperation>, usize, usize, VarType, Option<String>, Option<Token>);
+fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, stack_addr: usize, deref_depth: usize, reading: bool, indirect_write_operations: Option<Vec<MipsOperation>>) -> Result<AstTranslation, TranslatorError> {
     if var_ptr > NUM_REGISTERS {
         general_warning(format!("Translation uses > {} registers - Reduce function argument counts/array initialiser lengths.", NUM_REGISTERS))
     }
@@ -355,7 +280,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             let mut left_store_ptr = var_ptr;
             let mut array_deref_depth = deref_depth;
             
-            let left_opt = get_atomic_operand(&e.left, env.clone(), var_ptr, false, reading, deref_depth);
+            let left_opt = get_atomic_operand(&e.left, env.clone(), var_ptr, false);
             let left_lvalue;
 
             if let Some(left) = left_opt { 
@@ -388,7 +313,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             }
 
             let right_lvalue;
-            let right_opt = get_atomic_operand(&e.right, env.clone(), var_ptr, false, reading, deref_depth);
+            let right_opt = get_atomic_operand(&e.right, env.clone(), var_ptr, false);
             let mut right_operand;
             if let Some(right) = right_opt { 
                 let stack_ops;
@@ -410,7 +335,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             let mut array_ptr_opt = None;
             if deref_depth > 0 {
                 if let Some(left_lvalue_tok) = &left_lvalue { // Left resolves to an array ptr
-                    let step_size = env.borrow().get_variable(&left_lvalue_tok)?.step_size(deref_depth, reading);
+                    let step_size = env.borrow().get_variable(left_lvalue_tok)?.step_size(deref_depth);
                     let new_right_store = VariableMapping::from_register_number(var_ptr + 1, VarType::Int);
                     if step_size > 0 {
                         ops.push(MipsOperation::Mul(Mul { store: new_right_store.clone(), op_1: right_operand, op_2: MipsOperand::from_unsigned_literal(step_size) }));
@@ -418,7 +343,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                     }
                     array_ptr_opt = left_lvalue; 
                 } else if let Some(right_lvalue_tok) = &right_lvalue { // Right resolves to an array ptr
-                    let step_size = env.borrow().get_variable(&right_lvalue_tok)?.step_size(deref_depth, reading);
+                    let step_size = env.borrow().get_variable(right_lvalue_tok)?.step_size(deref_depth);
                     let new_left_store = VariableMapping::from_register_number(var_ptr, VarType::Int);
                     if step_size > 0 {
                         ops.push(MipsOperation::Mul(Mul { store: new_left_store.clone(), op_1: left_operand, op_2: MipsOperand::from_unsigned_literal(step_size) }));
@@ -434,7 +359,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             if e.operator.tok_type == TokenType::Or {
                 ops.push(MipsOperation::Label(Label { label_name: format!("%{}", dest_label - 1) }));
             }
-            return Ok((ops, var_ptr, array_deref_depth, store_type, None, array_ptr_opt));
+            Ok((ops, var_ptr, array_deref_depth, store_type, None, array_ptr_opt))
         },
         Expr::Unary(e) => {
             let mut var_ptr = var_ptr;
@@ -445,7 +370,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
 
             let referencing = e.operator.tok_type == TokenType::BitwiseAnd;
             let dereferencing = e.operator.tok_type == TokenType::Star;
-            let oper_opt = get_atomic_operand(&e.right, env.clone(), var_ptr, referencing, reading, deref_depth);
+            let oper_opt = get_atomic_operand(&e.right, env.clone(), var_ptr, referencing);
             let returning_literal_opt;
             let array_ptr_opt;
 
@@ -466,7 +391,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             let skip_operation = {
                 match &array_ptr_opt {
                     Some(array_tok) => { 
-                        let arr_dims = env.borrow().get_variable(&array_tok)?.size.len();
+                        let arr_dims = env.borrow().get_variable(array_tok)?.size.len();
                         !(dereferencing && reading && (deref_depth as i32) <= max_deref_depth as i32 - (arr_dims - 2) as i32) 
                     },
                     None => false
@@ -494,29 +419,36 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                 returning_literal_opt = None;
             }
 
-            return Ok((ops, var_ptr, max_deref_depth.max(deref_depth), store_type, returning_literal_opt, array_ptr_opt));
+            Ok((ops, var_ptr, max_deref_depth.max(deref_depth), store_type, returning_literal_opt, array_ptr_opt))
         },
         Expr::Literal(e)  => {
-            let val_str;
-            match e.value {
-                Some(v) => val_str = v.lexeme.clone(),
-                None => val_str = String::from("1")
+            let mut val_str = match e.value {
+                Some(v) => v.lexeme.clone(),
+                None => String::from("1")
+            };
+
+            if val_str.chars().any(|c| !c.is_numeric() && c != '.' && c != '-') {
+                val_str = match SpecialConstants::index_at_constant_without_type(&val_str) {
+                    Some(i) => format!("{}", i),
+                    None => "0".to_string(),
+                };
             }
+
             let value = MipsOperand::Literal(val_str.clone());
             let store_type = value.get_var_type();
             let store = VariableMapping::from_register_number(var_ptr, store_type.clone());
-            return Ok((
+            Ok((
                 Vec::from([ MipsOperation::Move(Move { store, op_1: value })]),
                 var_ptr,
                 deref_depth,
                 store_type,
                 Some(val_str),
                 None
-            ));
+            ))
         }
         Expr::Variable(var) => {
-            let (operand, ops, reg_ptr, _) = variable_expr_to_mips_access(var, env, var_ptr, false, reading, deref_depth)?;
-            return Ok((ops, reg_ptr, deref_depth, operand.get_var_type(), None, None))
+            let (operand, ops, reg_ptr, _) = variable_expr_to_mips_access(var, env, var_ptr, false)?;
+            Ok((ops, reg_ptr, deref_depth, operand.get_var_type(), None, None))
         },
         Expr::Call(call) => {
             // Call inside of expression
@@ -538,13 +470,13 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                 ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", stack_addr + 2)) }));
                 ops.push(MipsOperation::Peek(Peek { op_1: MipsOperand::from_register_number(i + 1, VarType::Float)}));
             }
-            return Ok((ops, var_ptr, deref_depth, ret_type, None, None))
+            Ok((ops, var_ptr, deref_depth, ret_type, None, None))
         },
         Expr::Grouping(e) => translate_ast(&e.expression, env.clone(), var_ptr, stack_addr, deref_depth, reading, indirect_write_operations),
-        Expr::StoredValueExpr(sto) => { 
+        Expr::StoredValue(sto) => { 
             let op_1 = MipsOperand::Literal(format!("{}", sto.value));
             let store_type = op_1.get_var_type();
-            return Ok((
+            Ok((
                 Vec::from([MipsOperation::Move(Move {
                     store: VariableMapping::from_register_number(var_ptr, store_type.clone()),
                     op_1
@@ -556,12 +488,12 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                 None
             ))
         },
-        Expr::ArrayIntialiserExpr(init) => {
+        Expr::ArrayIntialiser(init) => {
             let mut ops = Vec::new();
             for (i, expr) in init.elements.iter().enumerate() {
-                let (e_ops, _, _, rhs_type, _, _) = translate_ast(&expr, env.clone(), var_ptr, stack_addr + (init.step_size * i), deref_depth, reading, indirect_write_operations.clone())?;
+                let (e_ops, _, _, rhs_type, _, _) = translate_ast(expr, env.clone(), var_ptr, stack_addr + (init.step_size * i), deref_depth, reading, indirect_write_operations.clone())?;
                 ops.extend(e_ops);
-                if let Expr::ArrayIntialiserExpr(_) = **expr {}
+                if let Expr::ArrayIntialiser(_) = *expr {}
                 else {
                     let offset = init.step_size * i;
                     let lvalue_type = VarType::from_token(init.var_type)?;
@@ -577,7 +509,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                     
                 }
             }
-            return Ok((ops, var_ptr, deref_depth, VarType::Int, None, None))
+            Ok((ops, var_ptr, deref_depth, VarType::Int, None, None))
         },
     }
 }
@@ -586,7 +518,7 @@ fn translate_ast_and_write_to_stack<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>
     let (mut ops, _, _, rhs_type, _, _) = translate_ast(ast, env, var_ptr, var_stack_addr, 0, true, indirect_write_operations.clone())?;
     
     match ast {
-        Expr::ArrayIntialiserExpr(_) => (),
+        Expr::ArrayIntialiser(_) => (),
         _ => { 
             match indirect_write_operations {
                 Some(write_ops) => {
@@ -605,41 +537,36 @@ fn translate_ast_and_write_to_stack<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>
         },
     }
     
-    return Ok(ops);
+    Ok(ops)
 }
 
 // TODO - reading is poorly named
-fn variable_expr_to_mips_access<'a>(var: &VariableExpr, env: Rc<RefCell<Env<'a>>>, reg_ptr: usize, access_reference: bool, reading: bool, arr_ref_def: usize) -> Result<(MipsOperand, Vec<MipsOperation>, usize, Option<Token>), TranslatorError> {
+fn variable_expr_to_mips_access(var: &VariableExpr, env: Rc<RefCell<Env<'_>>>, reg_ptr: usize, access_reference: bool) -> Result<(MipsOperand, Vec<MipsOperation>, usize, Option<Token>), TranslatorError> {
     let borrowed_env = env.borrow();
     
     // if var_mapping is a stack mapping we must append stack access instructions and return the appropriate temp register mapping at this point
-    let mapping = borrowed_env.get_variable_mapping(&var.name)?;
+    let mapping = borrowed_env.get_variable_mapping(var.name)?;
     let arr_ptr_tok = if env.borrow().var_is_array_ptr(var.name)? { Some(var.name.clone()) } else { None };
 
     match mapping {
         VariableMapping::RegisterMapping(r) => {
-            return Ok((MipsOperand::VariableMapping(VariableMapping::RegisterMapping(r)), Vec::new(), reg_ptr, arr_ptr_tok));
+            Ok((MipsOperand::VariableMapping(VariableMapping::RegisterMapping(r)), Vec::new(), reg_ptr, arr_ptr_tok))
         },
         VariableMapping::StackMapping(s) => {
             let mut local_reg_ptr = reg_ptr;
             let mut ops = Vec::new();
             let tmp_store_reg = MipsOperand::from_register_number(local_reg_ptr, s.var_type.clone());
-            let mut offset: usize = 2;
+            let offset: usize = 2;
 
 
             if access_reference {
                 ops.push(MipsOperation::Add(Add { store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: local_reg_ptr, var_type: s.var_type}), op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));     
             }
             else if let Some(arr_tok) = &arr_ptr_tok {
-                let var = borrowed_env.get_variable(&arr_tok)?;
+                let var = borrowed_env.get_variable(arr_tok)?;
                 if !var.ptr_to_array {
                     ops.push(MipsOperation::Add(Add { store: VariableMapping::RegisterMapping(RegisterMapping { reg_no: local_reg_ptr, var_type: s.var_type}), op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
                 } else {
-                    if reading && !var.ptr_to_array { offset = 2; }
-                    else if !reading && var.ptr_to_array { offset = 2; }
-                    else if reading && var.ptr_to_array { 
-                        offset = 2;
-                    }
                     ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::Literal(format!("{}", s.relative_addr + offset)) }));
                     ops.push(MipsOperation::Peek(Peek { op_1: tmp_store_reg.clone() }));
                 }
@@ -651,15 +578,15 @@ fn variable_expr_to_mips_access<'a>(var: &VariableExpr, env: Rc<RefCell<Env<'a>>
 
             local_reg_ptr += 1;
             
-            return Ok((tmp_store_reg, ops, local_reg_ptr, arr_ptr_tok));
+            Ok((tmp_store_reg, ops, local_reg_ptr, arr_ptr_tok))
         },
         VariableMapping::StackPointer | VariableMapping::ReturnAddress => todo!(),
     }
 }
 
-// TODO: Result<Option<>> is extremely stinky - option determines wether the operand is atomic,
 // result determines wether the atomic operand exists in the current environment
-fn get_atomic_operand<'a>(expr: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, reg_ptr: usize, access_reference: bool, reading: bool, arr_ref_depth: usize) -> Option<Result<(MipsOperand, Vec<MipsOperation>, usize, Option<Token>), TranslatorError>> {
+type SingularOperandAccess = (MipsOperand, Vec<MipsOperation>, usize, Option<Token>);
+fn get_atomic_operand<'a>(expr: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, reg_ptr: usize, access_reference: bool) -> Option<Result<SingularOperandAccess, TranslatorError>> {
     match expr {
         Expr::Literal(lit) => {
             match lit.value {
@@ -667,10 +594,10 @@ fn get_atomic_operand<'a>(expr: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, reg_ptr: u
                 None => Some(Err(TranslatorError))
             }
         },
-        Expr::Variable(var) => return Some(variable_expr_to_mips_access(var, env, reg_ptr, access_reference, reading, arr_ref_depth)),
-        Expr::ArrayIntialiserExpr(init) => {
+        Expr::Variable(var) => Some(variable_expr_to_mips_access(var, env, reg_ptr, access_reference)),
+        Expr::ArrayIntialiser(init) => {
             translating_error(init.brace_tok, String::from("Expected expression."));
-            return Some(Err(TranslatorError))
+            Some(Err(TranslatorError))
         }
         _ => None
     }
@@ -678,24 +605,88 @@ fn get_atomic_operand<'a>(expr: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, reg_ptr: u
 
 fn write_to_variable(var_name_tok: &Token, env: Rc<RefCell<Env>>, result_reg: usize, lvalue_type: VarType, rhs_type: VarType) -> Result<Vec<MipsOperation>, TranslatorError> {
     let stack_addr = env.borrow().get_variable_index(var_name_tok)?;
-    return Ok(write_to_stack(stack_addr, result_reg, lvalue_type, rhs_type));
+    Ok(write_to_stack(stack_addr, result_reg, lvalue_type, rhs_type))
 }
 
 fn write_to_stack(relative_addr: usize, result_reg: usize, lvalue_type: VarType, rhs_type: VarType) -> Vec<MipsOperation> {
     let (_, _, mut ops) = unary_operand_types(&lvalue_type.to_token(), MipsOperand::from_register_number(result_reg, rhs_type));    
     ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", relative_addr + 1)) }));
     ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(result_reg, VarType::Int) }));
-    return ops;
+    ops
 }
 
 fn indirect_write_to_stack(result_reg: usize, lvalue_type: VarType, rhs_type: VarType) -> Vec<MipsOperation> {
     let (_, _, mut ops) = unary_operand_types(&lvalue_type.to_token(), MipsOperand::from_register_number(result_reg, rhs_type));    
     ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(result_reg + 1, VarType::Int), op_2: MipsOperand::from_number_literal(-1.0) }));
     ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(result_reg, lvalue_type)}));
-    return ops;
+    ops
 }
 
+
+fn direct_replaced_operation<'a>(func_name: &Token, params: &[Expr<'a>], env: Rc<RefCell<Env<'a>>>) -> Result<Option<Vec<MipsOperation>>, TranslatorError> {
+    if !MipsOperation::is_direct_replaced(&func_name.lexeme) { return Ok(None) }
+
+    let mut ops = Vec::new();
+    let base_reg_ptr = env.borrow().get_reg_ptr();
+    let mut store_type = VarType::Float;
+    
+    if func_name.lexeme == "HASH" {
+        if params.len() == 1 {
+            if let Expr::Literal(str_literal) = &params[0] {
+                if let Some(value) = str_literal.value {
+                    // TODO: This is quite jank because the scanner captures the quote marks as part of the string
+                    let hash = CRC_ALG.checksum(&value.lexeme.as_bytes()[1..(value.lexeme.len() - 1)]) as i32;
+                    ops.push(MipsOperation::Move(Move { store: VariableMapping::from_register_number(base_reg_ptr, VarType::Int), op_1: MipsOperand::Literal(format!("{}", hash)) }));
+                    return Ok(Some(ops));
+                }
+            }
+        }
+
+        translating_error(func_name, String::from("Provided arguments do not match those specified in the function signature - Note HASH requires a string literal (this may change when I get round to implementing strings properly)"));
+        return Err(TranslatorError);
+    }
+
+    let mut operands = vec![];
+    for (i, param) in params.iter().enumerate() {
+        if let Expr::Literal(lit) = param {
+            if let Some(literal_tok) = lit.value {
+                operands.push(MipsOperand::Literal(literal_tok.lexeme.clone()));
+            }
+        } else {
+            let (func_param_ops, _, _, param_type, _, _) = translate_ast(param, env.clone(), base_reg_ptr + i, 0, 0, true, None)?;
+            ops.extend(func_param_ops);
+            if i == 0 {
+                store_type = param_type.clone();
+            }
+            operands.push(MipsOperand::from_register_number(base_reg_ptr + i, param_type));
+        }
+    }
+    match MipsOperation::direct_replaced_operation(func_name, base_reg_ptr, operands, store_type)? {
+        Some((op, required_param_c, deref_store)) => {
+            if required_param_c == params.len() {
+                ops.push(op);
+                if deref_store {
+                    ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(base_reg_ptr, VarType::Int), op_2: MipsOperand::from_string_literal(format!("{}", -1)) }));
+                    ops.push(MipsOperation::Push(Push { op_1: MipsOperand::from_register_number(base_reg_ptr + 1, VarType::Float) }));
+                }
+                Ok(Some(ops))
+            } else {
+                translating_error(func_name, String::from("Provided arguments do not match those specified in the function signature"));
+                Err(TranslatorError)
+            }
+        }
+        None => {
+            Ok(None)
+        }
+    }
+}
+
+
 fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env<'a>>>, frame_size: usize) -> Result<(Vec<MipsOperation>, VarType), TranslatorError> {
+    if let Some(ops) = direct_replaced_operation(func_call.name, &func_call.params, env.clone())? {
+        return Ok((ops, VarType::Float));
+    }
+
     // Copy parameter expressions to memory mappings
     let mut ops = Vec::new();
     let mut ret_type = VarType::Int;
@@ -747,7 +738,7 @@ fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env
         op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int),
         op_2: MipsOperand::from_string_literal(format!("-{}", frame_size + 1))
     }));
-    return Ok((ops, ret_type));
+    Ok((ops, ret_type))
 }
 
 fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<MipsOperation>, TranslatorError> {
@@ -755,17 +746,17 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
         Stmt::Block(block) => {
             let mut ops = Vec::new();
             for inner_stmt in block.statements.iter() {
-                let inner_ops = translate(&inner_stmt, env.clone())?;
+                let inner_ops = translate(inner_stmt, env.clone())?;
                 ops = [ops, inner_ops].concat();
             }
-            return Ok(ops)
+            Ok(ops)
         },
         Stmt::Expression(_) => todo!(),
         Stmt::Function(func) => {
             let mut ops = Vec::new();
             ops.push(MipsOperation::Label(Label { label_name: func.name.lexeme.clone() }));
             let func_env = Env::new(
-                Box::new(HashMap::new()),
+                HashMap::new(),
                 env.borrow().functions.clone(),
                 0,
                 env.borrow().var_count,
@@ -782,8 +773,8 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
             for (i, param) in func.params.iter().enumerate() {
                 if let Stmt::Variable(p) = param {
                     let var_type = VarType::from_token(p.var_type)?;
-                    func_env.borrow_mut().add_var(&p.var_name, var_type.clone(), p.var_sizes.clone(), p.is_array, p.is_array);
-                    ops.extend(write_to_variable(&p.var_name, func_env.clone(), param_reg_ptr + i, var_type.clone(), var_type)?);
+                    func_env.borrow_mut().add_var(p.var_name, var_type.clone(), p.var_sizes.clone(), p.is_array, p.is_array);
+                    ops.extend(write_to_variable(p.var_name, func_env.clone(), param_reg_ptr + i, var_type.clone(), var_type)?);
                 }
             }
 
@@ -799,7 +790,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                 ops.push(MipsOperation::Peek(Peek { op_1: MipsOperand::VariableMapping(VariableMapping::ReturnAddress)}));
                 ops.push(MipsOperation::Return(Return {}));    
             }
-            return Ok(ops);
+            Ok(ops)
         },
         Stmt::If(conditional) => {
             let mut ops = Vec::new();
@@ -828,7 +819,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                 }));
 
                 let branch_block_env = Env::new(
-                    Box::new(HashMap::new()),
+                    HashMap::new(),
                     env.borrow().functions.clone(),
                     0,
                     env.borrow().var_count,
@@ -841,12 +832,12 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                 }
             }
             ops.push(MipsOperation::Label(Label { label_name: format!("%{}", current_label_ptr)}));
-            return Ok(ops);
+            Ok(ops)
         },
         Stmt::Return(ret) => {
             let mut ops = Vec::new();
             let reg_ptr = env.borrow().get_reg_ptr();
-            if let Some(_) = &env.borrow().parent {
+            if env.borrow().parent.is_some() {
                 let (ret_expr_ops, _, _, ret_type, _, _) = translate_ast(&ret.value, env.clone(), reg_ptr, 0, 0, true, None)?;
                 ops.extend(ret_expr_ops);
                 let (_, _, implicit_cast_ops) = unary_operand_types(&ret.ret_type, MipsOperand::from_register_number(reg_ptr, ret_type));
@@ -856,21 +847,21 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
             ops.push(MipsOperation::Add(Add { store: VariableMapping::StackPointer, op_1: MipsOperand::from_register_number(0, VarType::Int), op_2: MipsOperand::Literal(String::from("1"))}));
             ops.push(MipsOperation::Peek(Peek { op_1: MipsOperand::VariableMapping(VariableMapping::ReturnAddress)}));
             ops.push(MipsOperation::Return(Return {}));
-            return Ok(ops);
+            Ok(ops)
         },
         Stmt::Variable(var) => {
             let var_type = VarType::from_token(var.var_type)?;
-            env.borrow_mut().add_var(&var.var_name, var_type.clone(), var.var_sizes.clone(), var.is_array, false);
+            env.borrow_mut().add_var(var.var_name, var_type.clone(), var.var_sizes.clone(), var.is_array, false);
             let mut var_ops = Vec::new();
             let reg_ptr = env.borrow().get_reg_ptr();
             match &var.initialiser {
                 Some(init) => {
                     let stack_addr = env.borrow().get_variable_index(var.var_name)?;
-                    var_ops.extend(translate_ast_and_write_to_stack(&init, env, reg_ptr, stack_addr, var_type, None, false)?);
+                    var_ops.extend(translate_ast_and_write_to_stack(init, env, reg_ptr, stack_addr, var_type, None, false)?);
                 }
                 None => {}
             }
-            return Ok(var_ops);
+            Ok(var_ops)
         },
         Stmt::While(wh) => {
             // j y
@@ -880,7 +871,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
             // condition
             // beq condition 1 x
             let body_env = Env::new(
-                Box::new(HashMap::new()),
+                HashMap::new(),
                 env.borrow().functions.clone(),
                 0,
                 env.borrow().var_count,
@@ -903,7 +894,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                 dest: MipsOperand::from_string_literal(body_label.clone())
             }));
 
-            return Ok(ops)
+            Ok(ops)
         },
         Stmt::For(for_stmt) => {
             let mut ops = Vec::new();
@@ -912,7 +903,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
             }
 
             let body_env = Env::new(
-                Box::new(HashMap::new()),
+                HashMap::new(),
                 env.borrow().functions.clone(),
                 0,
                 env.borrow().var_count,
@@ -937,7 +928,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                 dest: MipsOperand::from_string_literal(body_label.clone())
             }));
             
-            return Ok(ops)
+            Ok(ops)
         },
         Stmt::Assign(assign) => {
             let return_register = env.borrow().get_reg_ptr();
@@ -962,11 +953,11 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> Result<Vec<Mi
                     ops.extend(translate_ast_and_write_to_stack(&assign.binding, env, return_register, lvalue_addr, lvalue_type, None, false)?);
                 }
             }
-            return Ok(ops)
+            Ok(ops)
         },
         Stmt::FunctionCall(func_call) => {
             let (ops, _) = translate_function_call(func_call, env.clone(), env.borrow().frame_ptr)?;
-            return Ok(ops)
+            Ok(ops)
         }
     }
 }
@@ -983,16 +974,16 @@ pub(super) fn translating_error(token: &Token, message: String) {
 pub(super) fn mips_operations_to_string(ops: &Vec<MipsOperation>) -> String {
     let mut ops_str = String::new();
     for op in ops {
-        let op_string = mips_operation_to_string(op.clone());
+        let op_string = MipsOperation::mips_operation_to_string(op.clone());
         ops_str.push_str(&op_string);
     }
-    return ops_str;
+    ops_str
 }
 
 pub(super) fn translate_statements(statements: Vec<Stmt>) -> Vec<MipsOperation> {
     // Construct global environment
     let global_env = Env::new(
-        Box::new(HashMap::new()), 
+        HashMap::new(), 
         Rc::new(HashMap::new().into()), 
         0, 
         0,
@@ -1005,17 +996,16 @@ pub(super) fn translate_statements(statements: Vec<Stmt>) -> Vec<MipsOperation> 
         }
         else if let Stmt::Variable(s) = stmt {
             if let Ok(var_type) = VarType::from_token(s.var_type) {
-                global_env.borrow_mut().add_var(&s.var_name, var_type, s.var_sizes.clone(), s.is_array, false);
+                global_env.borrow_mut().add_var(s.var_name, var_type, s.var_sizes.clone(), s.is_array, false);
             }
         }
     }
     
-    let mut mips = Vec::new();
-    mips.push(MipsOperation::Jump(Jump { label_name: String::from("main") }));
+    let mut mips = vec![MipsOperation::Jump(Jump { label_name: String::from("main") })];
     for stmt in &statements {
-        if let Ok(ops) = translate(&stmt, global_env.clone()) {
+        if let Ok(ops) = translate(stmt, global_env.clone()) {
             mips = [mips, ops].concat();
         }
     }
-    return mips;
+    mips
 }

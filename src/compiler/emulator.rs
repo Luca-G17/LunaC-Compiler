@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::{thread, time};
 use crate::error_handler::print_stage;
 use super::mips_operations::*;
 
@@ -15,7 +16,7 @@ fn operand_read(registers: & [f32], sp: &mut usize, ra: &mut usize, op: &MipsOpe
                 VariableMapping::ReturnAddress => *ra as f32,
             }
         },
-        MipsOperand::Literal(lit) => lit.parse().unwrap(),
+        MipsOperand::Literal(lit) => lit.parse().unwrap_or(0.0),
     }
 }
 
@@ -165,22 +166,44 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
             line_no = operand_read(registers, sp, ra, &MipsOperand::VariableMapping(VariableMapping::ReturnAddress)) as usize - 1;
         },
         MipsOperation::Floor(o) => {
-            let left: f32 = operand_read(registers, sp, ra, &o.op_1) as f32;
+            let left: f32 = operand_read(registers, sp, ra, &o.op_1);
             let result = left.floor();
             mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(result));
         },
+        MipsOperation::NonStoringOperation(o) => {
+            if o.op_str == "sleep" {
+                let left  = operand_read(registers, sp, ra, &o.operands[0]) as u64;
+                let seconds = time::Duration::from_secs(left);
+                thread::sleep(seconds);
+            } else if o.op_str == "yield" {
+                thread::sleep(time::Duration::from_millis(500));
+            }
+        }
+        MipsOperation::StoringOperation(o) => {
+            let operands: Vec<f32> = o.operands.iter().map(|operand| operand_read(registers, sp, ra, operand)).collect();
+            let opstr: &str = &o.op_str;
+            match opstr {
+                "sin" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::sin(operands[0]))),
+                "cos" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::cos(operands[0]))),
+                "tan" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::tan(operands[0]))),
+                "asin" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::asin(operands[0]))),
+                "acos" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::acos(operands[0]))),
+                "atan" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::atan(operands[0]))),
+                _ => ()
+            }
+        },
     }
-    return line_no
+    line_no
 }
 
-fn label_line_numbers(ops: &Vec<MipsOperation>) -> HashMap<String, usize> {
+fn label_line_numbers(ops: &[MipsOperation]) -> HashMap<String, usize> {
     let mut label_mapping = HashMap::new();
     for (line_no, op) in ops.iter().enumerate() {
         if let MipsOperation::Label(label) = op {
             label_mapping.insert(label.label_name.clone(), line_no);
         }
     }
-    return label_mapping
+    label_mapping
 }
 
 fn print_stack(stack: &[f32], print_size: usize) {
@@ -208,12 +231,10 @@ fn print_stack(stack: &[f32], print_size: usize) {
 
     // Print top border
     stack_str.push_str(&format!("{}", top_left));
-    stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
+    stack_str.push_str(&horizontal.to_string().repeat(7).to_string());
     stack_str.push_str(&format!("{}", top_t));
-    for i in 0..print_size {
-        let box_width = padding[i];
-
-        stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
+    for (i, box_width) in padding.iter().enumerate().take(print_size) {
+        stack_str.push_str(&horizontal.to_string().repeat(*box_width).to_string());
         if i < print_size - 1 {
             stack_str.push_str(&format!("{}", top_t));
         }
@@ -222,7 +243,7 @@ fn print_stack(stack: &[f32], print_size: usize) {
 
     // Print middle part with numbers
     stack_str.push_str(&format!("{}", vertical));
-    stack_str.push_str(&format!(" Index "));
+    stack_str.push_str(" Index ");
     stack_str.push_str(&format!("{}", vertical));
     for i in 0..print_size {
         let num_str = i.to_string();
@@ -236,26 +257,25 @@ fn print_stack(stack: &[f32], print_size: usize) {
         ));
         stack_str.push_str(&format!("{}", vertical));
     }
-    stack_str.push_str("\n");
+    stack_str.push('\n');
 
     // Print middle border
     stack_str.push_str(&format!("{}", left_t));
-    stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
+    stack_str.push_str(&horizontal.to_string().repeat(7).to_string());
     stack_str.push_str(&format!("{}", intersection));
-    for i in 0..print_size {
-        let box_width = padding[i];
-        stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
+    for (i, box_width) in padding.iter().enumerate().take(print_size) {
+        stack_str.push_str(&horizontal.to_string().repeat(*box_width).to_string());
         if i < print_size - 1 {
             stack_str.push_str(&format!("{}", intersection));
         }
     }
     stack_str.push_str(&format!("{}", right_t));
 
-    stack_str.push_str("\n");
+    stack_str.push('\n');
 
     // Print middle part with numbers
     stack_str.push_str(&format!("{}", vertical));
-    stack_str.push_str(&format!(" Value "));
+    stack_str.push_str(" Value ");
     stack_str.push_str(&format!("{}", vertical));
     for i in 0..print_size {
         let num_str = stack[i].to_string();
@@ -269,15 +289,14 @@ fn print_stack(stack: &[f32], print_size: usize) {
         ));
         stack_str.push_str(&format!("{}", vertical));
     }
-    stack_str.push_str("\n");
+    stack_str.push('\n');
 
     // Print middle border
     stack_str.push_str(&format!("{}", bottom_left));
-    stack_str.push_str(&format!("{}", horizontal.to_string().repeat(7)));
+    stack_str.push_str(&horizontal.to_string().repeat(7).to_string());
     stack_str.push_str(&format!("{}", bottom_t));
-    for i in 0..print_size {
-        let box_width = padding[i];
-        stack_str.push_str(&format!("{}", horizontal.to_string().repeat(box_width)));
+    for (i, box_width) in padding.iter().enumerate().take(print_size) {
+        stack_str.push_str(&horizontal.to_string().repeat(*box_width).to_string());
         if i < print_size - 1 {
             stack_str.push_str(&format!("{}", bottom_t));
         }
@@ -297,10 +316,10 @@ pub(super) fn process_operations(ops: Vec<MipsOperation>, stack_print_size: usiz
 
     while line_no < ops.len() {
         let op = &ops[line_no];
-        line_no = process_operation(&op, &label_mapping, &mut registers, &mut stack, line_no, &mut sp, &mut ra);
+        line_no = process_operation(op, &label_mapping, &mut registers, &mut stack, line_no, &mut sp, &mut ra);
         line_no += 1;
     }
     
     print_stack(&stack, stack_print_size);
-    return stack[1..(ret_count + 1)].to_vec();
+    stack[1..(ret_count + 1)].to_vec()
 }
