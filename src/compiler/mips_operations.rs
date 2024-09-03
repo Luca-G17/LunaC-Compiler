@@ -1,10 +1,7 @@
-use std::{collections::HashMap, fs};
 
-use lazy_static::lazy_static;
 
-use super::{scanner::{Token, TokenType}, translator::{translating_error, TranslatorError}};
+use super::{library_constructs::{SpecialConstants, SpecialFunction, SPECIAL_FUNCTIONS}, scanner::{Token, TokenType}, translator::{translating_error, TranslatorError}};
 
-const SPECIAL_FUNCTIONS_PATH: &str = "scripts/game_types.json";
 
 #[derive(Clone)]
 pub(super) struct RegisterMapping {
@@ -252,50 +249,6 @@ pub(super) enum MipsOperand {
     Literal(String)
 }
 
-pub struct SpecialFunction {
-    args: Vec<String>,
-    mips_name: String,
-    storing: bool,
-}
-
-lazy_static! {
-    static ref FUNCTIONS: HashMap<String, SpecialFunction> = {
-        let mut m = HashMap::new();
-        let functions_str = fs::read_to_string(SPECIAL_FUNCTIONS_PATH).expect("Failed to read special functions json file.");
-        let functions_json = json::parse(&functions_str).unwrap();
-        if let json::JsonValue::Array(function_arr) = &functions_json["special_functions"] {
-            for function in function_arr {
-                let identifier = match &function["identifier"] {
-                    json::JsonValue::String(iden) => iden.to_string(),
-                    _ => "".to_string()
-                };
-
-                let mips_name = match &function["mips_name"] {
-                    json::JsonValue::String(name) => name.to_string(),
-                    _ => "".to_string()
-                };
-                let mut args = vec![];
-                if let json::JsonValue::Array(args_arr) = &function["args"] {
-                    for arg in args_arr {
-                        if let json::JsonValue::Array(arg_type_arr) = arg {
-                            if let json::JsonValue::String(type_arg) = &arg_type_arr[0] {
-                                args.push(type_arg.clone());
-                            }
-                        }
-                    }
-                }
-                let storing = match &function["storing"] {
-                    json::JsonValue::Boolean(storing_bool) => *storing_bool,
-                    _ => false
-                };
-                
-                m.insert(identifier, SpecialFunction { args, mips_name, storing });
-            }
-        }
-        m
-    };
-}
-
 impl MipsOperand {
 
     pub(super) fn from_unsigned_literal(integer: usize) -> Self {
@@ -475,20 +428,89 @@ impl MipsOperation {
     }
 
     pub(super) fn is_direct_replaced(op_str: &str) -> bool {
-        FUNCTIONS.contains_key(op_str)
+        SPECIAL_FUNCTIONS.contains_key(op_str)
+    }
+
+    fn replace_arguments_with_strings(func_template: &SpecialFunction, operands: Vec<MipsOperand>, func_tok: &Token) -> Result<Vec<MipsOperand>, TranslatorError> {
+        // Replace mips_special_constants integers with the corresponding string
+        let mut replaced_operands = vec![];
+        for (i, operand) in operands.iter().enumerate() {
+
+            if let MipsOperand::Literal(lit) = operand {
+                // If argument is special constant - check the constant exists in its given type and convert to pascal case
+                // with the exception of "device_id_t" which should be converted to its index and char* which should remain untouched
+                // If the literal is numeric then lookup its corresponding constant value 
+
+                let arg_type = &func_template.args[i];
+                let mut lit = lit.clone();
+                if (SpecialConstants::is_item_type(arg_type) || SpecialConstants::is_mips_type(arg_type)) && lit.chars().all(|c| c.is_ascii_digit()) {
+                    match SpecialConstants::constant_at_index(lit.parse().unwrap(), arg_type) {
+                        Some(str) => lit = str,
+                        None => { 
+                            translating_error(func_tok, format!("Expected argument of type: {}, got: {}.", arg_type, lit));
+                            return Err(TranslatorError)
+                        },
+                    }
+                }
+
+                if arg_type == "device_id_t" {
+                    match SpecialConstants::index_at_constant(&lit, arg_type) {
+                        Some(index) => replaced_operands.push(MipsOperand::from_string_literal(format!("d{}", index))),
+                        None => { 
+                            translating_error(func_tok, format!("Expected argument of type: {}, got: {}.", arg_type, lit));
+                            return Err(TranslatorError)
+                        },
+                    }
+                }
+                else if SpecialConstants::is_mips_type(arg_type) {
+                    match SpecialConstants::replacement_string(&lit, arg_type) {
+                        Some(str) => replaced_operands.push(MipsOperand::from_string_literal(str)),
+                        None => {
+                            translating_error(func_tok, format!("Expected argument of type: {}, got: {}.", arg_type, lit));
+                            return Err(TranslatorError)
+                        },
+                    }
+                }
+                else if SpecialConstants::is_item_type(arg_type) {
+                    match SpecialConstants::hash_replacement(&lit, arg_type) {
+                        Some(hash) => replaced_operands.push(MipsOperand::from_string_literal(format!("{}", hash))),
+                        None => {
+                            translating_error(func_tok, format!("Expected argument of type: {}, got: {}.", arg_type, lit));
+                            return Err(TranslatorError)
+                        },
+                    }
+                }
+                else {
+                    replaced_operands.push(operand.clone())
+                }
+            }
+            else {
+                replaced_operands.push(operand.clone());
+            }
+        }
+        Ok(replaced_operands)
     }
 
     // Returns the corresponding mips operation + it's number of required arguments
     // If the function is attempting to store into a pointer - store the value in the base_ptr+1, preventing us from overwriting the address stored in base_ptr
-    pub(super) fn direct_replaced_operation(op_str: &str, base_ptr: usize, operands: Vec<MipsOperand>, store_type: VarType) -> Option<(MipsOperation, usize, bool)>{
-        FUNCTIONS.get(op_str).map(|func_template| ({
-            if func_template.storing {
-                let mut store_ptr = base_ptr;
-                if !func_template.args.is_empty() && func_template.args[0] == "float*" { store_ptr += 1;}
-                MipsOperation::StoringOperation(StoringOperation { op_str: func_template.mips_name.clone(), store: VariableMapping::from_register_number(store_ptr, store_type), operands })
-            } else {
-                MipsOperation::NonStoringOperation(NonStoringOperation { op_str: func_template.mips_name.clone(), operands })
-            } 
-        }, func_template.args.len(), !func_template.args.is_empty() && func_template.args[0] == "float*" ))
+    pub(super) fn direct_replaced_operation(op_tok: &Token, base_ptr: usize, operands: Vec<MipsOperand>, store_type: VarType) -> Result<Option<(MipsOperation, usize, bool)>, TranslatorError>{
+        let op_str = &op_tok.lexeme;
+        if let Some(func_template) = SPECIAL_FUNCTIONS.get(op_str) {
+            let mut operands = MipsOperation::replace_arguments_with_strings(func_template, operands, op_tok)?;
+            let op = { 
+                if func_template.storing {
+                    let mut store_ptr = base_ptr;
+                    if !func_template.args.is_empty() && func_template.args[0] == "float*" {
+                        store_ptr += 1;
+                        operands = operands[1..operands.len()].to_vec();
+                    }
+                    MipsOperation::StoringOperation(StoringOperation { op_str: func_template.mips_name.clone(), store: VariableMapping::from_register_number(store_ptr, store_type), operands })
+                } else {
+                    MipsOperation::NonStoringOperation(NonStoringOperation { op_str: func_template.mips_name.clone(), operands })
+                }
+            };
+            return Ok(Some((op, func_template.args.len(), !func_template.args.is_empty() && func_template.args[0] == "float*")))
+        }
+        Ok(None)
     }
 }

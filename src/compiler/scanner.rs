@@ -1,41 +1,8 @@
-use lazy_static::lazy_static;
-
 use crate::error_handler::error;
 use core::fmt;
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
 
-const GAME_TYPES_PATH: &str = "scripts/game_types.json";
-
-lazy_static! {
-    static ref SPECIAL_ENUMS: Vec<CEnum> = {
-        let game_types_str = fs::read_to_string(GAME_TYPES_PATH).expect("Failed to read game_types.json");
-        let game_types = json::parse(&game_types_str).unwrap();
-        let mut enums = vec![];
-
-        // TODO: This is a mess but kinda fine cause its only used once - if I need to json parse again I may write a template parser.
-        if let json::JsonValue::Array(catagories) = &game_types["type_catagories"] {
-            for catagory in catagories {
-                if let json::JsonValue::String(identifier) = &catagory["identifier"] {
-                    let mut variants = vec![];
-                    if let json::JsonValue::Array(json_variants) = &catagory["variants"] {
-                        for variant in json_variants {
-                            if let json::JsonValue::String(variant_str) = variant {
-                                variants.push(variant_str.to_string());
-                            }
-                        }
-                    }
-                    enums.push(CEnum { identifier: identifier.to_string(), variants })
-                }
-            }
-        }
-        enums
-    };
-}
-
-struct CEnum {
-    identifier: String,
-    variants: Vec<String>
-}
+use super::library_constructs::SpecialConstants;
 
 #[derive(PartialEq)]
 #[derive(Clone)]
@@ -163,100 +130,100 @@ impl Scanner {
         let c = self.next_char();
         match c {
             '#' => while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); },
-            '(' => self.add_token(TokenType::LeftParen, c.to_string()),
-            ')' => self.add_token(TokenType::RightParen, c.to_string()),
-            '{' => self.add_token(TokenType::LeftBrace, c.to_string()),
-            '}' => self.add_token(TokenType::RightBrace, c.to_string()),
-            '[' => self.add_token(TokenType::LeftSquareBrace, c.to_string()),
-            ']' => self.add_token(TokenType::RightSquareBrace, c.to_string()),
-            ',' => self.add_token(TokenType::Comma, c.to_string()),
-            '.' => self.add_token(TokenType::Dot, c.to_string()),
-            ';' => self.add_token(TokenType::Semicolon, c.to_string()),
-            '~' => self.add_token(TokenType::Tilde, c.to_string()),
+            '(' => self.add_token(TokenType::LeftParen),
+            ')' => self.add_token(TokenType::RightParen),
+            '{' => self.add_token(TokenType::LeftBrace),
+            '}' => self.add_token(TokenType::RightBrace),
+            '[' => self.add_token(TokenType::LeftSquareBrace),
+            ']' => self.add_token(TokenType::RightSquareBrace),
+            ',' => self.add_token(TokenType::Comma),
+            '.' => self.add_token(TokenType::Dot),
+            ';' => self.add_token(TokenType::Semicolon),
+            '~' => self.add_token(TokenType::Tilde),
             '&' => { 
                 let next = self.peek();
                 match next {
                     '&' => {
-                        self.add_token(TokenType::And, c.to_string());
+                        self.add_token(TokenType::And);
                         self.next_char();
                     },
                     '=' => {
-                        self.add_token(TokenType::AndEqual, c.to_string());
+                        self.add_token(TokenType::AndEqual);
                         self.next_char();
                     },
-                    _ => self.add_token(TokenType::BitwiseAnd, c.to_string())
+                    _ => self.add_token(TokenType::BitwiseAnd)
                 }
             },
             '|' => { 
                 let next = self.peek();
                 match next {
                     '|' => {
-                        self.add_token(TokenType::Or, c.to_string());
+                        self.add_token(TokenType::Or);
                         self.next_char();
                     },
                     '=' => {
-                        self.add_token(TokenType::OrEqual, c.to_string());
+                        self.add_token(TokenType::OrEqual);
                         self.next_char();
                     },
-                    _ => self.add_token(TokenType::BitwiseOr, c.to_string()),
+                    _ => self.add_token(TokenType::BitwiseOr),
                 }
             },
             '^' => { 
                 let tok_type = if self.match_char('=') { TokenType::XorEqual } else { TokenType::BitwiseXor };
-                self.add_token(tok_type, c.to_string()) 
+                self.add_token(tok_type) 
             },
             '%' => { 
                 let tok_type = if self.match_char('=') { TokenType::PercentEqual } else { TokenType::Percent };
-                self.add_token(tok_type, c.to_string()) 
+                self.add_token(tok_type) 
             },
             '*' => { 
                 let tok_type = if self.match_char('=') { TokenType::StarEqual } else { TokenType::Star };
-                self.add_token(tok_type, c.to_string()) 
+                self.add_token(tok_type) 
             },
             '+' => { 
                 let tok_type = if self.match_char('=') { TokenType::PlusEqual } else { TokenType::Plus };
-                self.add_token(tok_type, c.to_string()) 
+                self.add_token(tok_type) 
             },
             '-' => { 
                 let tok_type = if self.match_char('=') { TokenType::MinusEqual } else { TokenType::Minus };
-                self.add_token(tok_type, c.to_string())
+                self.add_token(tok_type)
             },
             '!' => { 
                 let tok_type = if self.match_char('=') { TokenType::BangEqual } else { TokenType::Bang };
-                self.add_token(tok_type, c.to_string());
+                self.add_token(tok_type);
             },
             '=' => { 
                 let tok_type = if self.match_char('=') { TokenType::EqualEqual } else { TokenType::Equal };
-                self.add_token(tok_type, c.to_string());
+                self.add_token(tok_type);
             },
             '<' => { 
                 let next = self.peek();
                 match next {
                     '=' => { 
-                        self.add_token(TokenType::LessEqual, c.to_string());
+                        self.add_token(TokenType::LessEqual);
                         self.next_char();
                     }
                     '<' => { 
                         self.next_char();
                         let tok_type = if self.match_char('=') { TokenType::LeftShiftEqual } else { TokenType::LeftShift };
-                        self.add_token(tok_type, c.to_string());
+                        self.add_token(tok_type);
                     }
-                    _ => self.add_token(TokenType::Less, c.to_string())
+                    _ => self.add_token(TokenType::Less)
                 }
             },
             '>' => { 
                 let next = self.peek();
                 match next {
                     '=' => { 
-                        self.add_token(TokenType::GreaterEqual, c.to_string());
+                        self.add_token(TokenType::GreaterEqual);
                         self.next_char();
                     }
                     '>' => { 
                         self.next_char();
                         let tok_type = if self.match_char('=') { TokenType::RightShiftEqual } else { TokenType::RightShift };
-                        self.add_token(tok_type, c.to_string());
+                        self.add_token(tok_type);
                     }
-                    _ => self.add_token(TokenType::Greater, c.to_string())
+                    _ => self.add_token(TokenType::Greater)
                 }
             },
             '/' => {
@@ -266,10 +233,10 @@ impl Scanner {
                 match next {
                     '/' => while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); },
                     '=' => {
-                        self.add_token(TokenType::SlashEqual, c.to_string());
+                        self.add_token(TokenType::SlashEqual);
                         self.next_char();
                     }, 
-                    _ => self.add_token(TokenType::Slash, c.to_string())
+                    _ => self.add_token(TokenType::Slash)
                 }
             }
             '"' => self.parse_string(),
@@ -289,17 +256,6 @@ impl Scanner {
         }
     } 
 
-    fn index_of_replacement(replacee: &str) -> Option<usize> {
-        for c_enum in SPECIAL_ENUMS.iter() {
-            for (i, variant) in c_enum.variants.iter().enumerate() {
-                if variant == replacee {
-                    return Some(i);
-                }
-            }
-        }
-        None
-    }
-
     fn parse_identifier(&mut self) {
         while Scanner::is_alphaneumeric(self.peek()) { self.next_char(); }
 
@@ -311,13 +267,15 @@ impl Scanner {
                     while self.peek() != '\n' && !self.is_at_eof() { self.next_char(); }
                 }
                 else {
-                    self.add_token(*t, text);
+                    self.add_token(*t);
                 }
             },
             None =>  {
-                match Scanner::index_of_replacement(&text) {
-                    Some(i) => self.add_token(TokenType::Number, format!("{}", i)),
-                    None => self.add_token(TokenType::Identifier, text)
+                if SpecialConstants::is_mips_item_variant(&text) || SpecialConstants::is_mips_type_variant(&text) {
+                    self.add_token(TokenType::String)
+                }
+                else {
+                    self.add_token(TokenType::Identifier)
                 }
             },
         }
@@ -346,7 +304,7 @@ impl Scanner {
             // Second part of decimal
             while Scanner::is_digit(self.peek()) { self.next_char(); }
         }
-        self.add_token(TokenType::Number, String::from(&self.source[self.start..self.current]))
+        self.add_token(TokenType::Number)
     }
 
     fn parse_string(&mut self) {
@@ -360,8 +318,7 @@ impl Scanner {
         }
 
         self.next_char();
-        let value = &self.source[self.start + 1..self.current - 1];
-        self.add_token(TokenType::String, String::from(value))
+        self.add_token(TokenType::String)
     }
 
     fn next_char(&mut self) -> char {
@@ -370,11 +327,11 @@ impl Scanner {
         c
     }
 
-    fn add_token(&mut self, tok_type: TokenType, literal: String) {
+    fn add_token(&mut self, tok_type: TokenType) {
         let new_token = Token {
             tok_type,
             lexeme: String::from(&(self.source)[self.start..self.current]),
-            literal,
+            literal: String::from(&(self.source)[self.start..self.current]),
             line_no: self.line_no
         };
         self.tokens.push(new_token);

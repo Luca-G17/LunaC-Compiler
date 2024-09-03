@@ -16,7 +16,7 @@ fn operand_read(registers: & [f32], sp: &mut usize, ra: &mut usize, op: &MipsOpe
                 VariableMapping::ReturnAddress => *ra as f32,
             }
         },
-        MipsOperand::Literal(lit) => lit.parse().unwrap(),
+        MipsOperand::Literal(lit) => lit.parse().unwrap_or(0.0),
     }
 }
 
@@ -179,7 +179,19 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
                 thread::sleep(time::Duration::from_millis(500));
             }
         }
-        MipsOperation::StoringOperation(_) => (),
+        MipsOperation::StoringOperation(o) => {
+            let operands: Vec<f32> = o.operands.iter().map(|operand| operand_read(registers, sp, ra, operand)).collect();
+            let opstr: &str = &o.op_str;
+            match opstr {
+                "sin" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::sin(operands[0]))),
+                "cos" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::cos(operands[0]))),
+                "tan" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::tan(operands[0]))),
+                "asin" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::asin(operands[0]))),
+                "acos" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::acos(operands[0]))),
+                "atan" => mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(f32::atan(operands[0]))),
+                _ => ()
+            }
+        },
     }
     line_no
 }

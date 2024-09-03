@@ -652,7 +652,7 @@ fn direct_replaced_operation<'a>(func_name: &Token, params: &[Expr<'a>], env: Rc
             operands.push(MipsOperand::from_register_number(base_reg_ptr + i, param_type));
         }
     }
-    match MipsOperation::direct_replaced_operation(&func_name.lexeme, base_reg_ptr, operands, store_type) {
+    match MipsOperation::direct_replaced_operation(func_name, base_reg_ptr, operands, store_type)? {
         Some((op, required_param_c, deref_store)) => {
             if required_param_c == params.len() {
                 ops.push(op);

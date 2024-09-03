@@ -1483,7 +1483,7 @@ typedef enum {
     WEAPON_PISTOL_ENERGY,
     WEAPON_RIFLE_ENERGY,
     WEAPON_TORPEDO,
-} item_t;
+} entity_t;
 
 typedef enum {
     ALCOHOL,
@@ -1528,4 +1528,5 @@ typedef enum {
     TOMATO,
     URANIUM,
     WASPALOY,
-} reagents_t;
+} reagent_t;
+

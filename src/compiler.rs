@@ -7,6 +7,7 @@ pub mod scanner;
 pub mod translator;
 pub mod mips_operations;
 pub mod emulator;
+pub mod library_constructs;
 
 fn translate(filename: String) -> Vec<MipsOperation> {
     let contents = fs::read_to_string(filename).expect("Failed to read file");
