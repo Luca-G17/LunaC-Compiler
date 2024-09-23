@@ -108,8 +108,8 @@ pub fn test_translation(test_name: &str, test_dir: &str, result_count: usize) {
 pub fn test_parser(test_name: String, verbose: bool) {
     let filename = format!("tests/parser_tests/{}.c", test_name);
     let contents = fs::read_to_string(filename).expect("Failed to read file");
-    let tokens = scanner::scan_tokens(contents);
-    let stmts = parser::parse(&tokens);
+    let tokens = scanner::scan_tokens(contents, true);
+    let stmts = parser::parse(&tokens, true);
     let mut result = String::from("");
     for stmt in stmts {
         result.push_str(&parser::pretty_print_stmt(&stmt, 0));

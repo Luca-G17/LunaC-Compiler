@@ -1,8 +1,8 @@
 
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
 use lazy_static::lazy_static;
 
-const SPECIAL_FUNCTIONS_PATH: &str = "scripts/mips_identifiers.json";
+const SPECIAL_IDENTIFIERS_STR: &str = include_str!("../../scripts/mips_identifiers.json");
 const CRC_HASHER: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 pub struct SpecialFunction {
@@ -14,8 +14,7 @@ pub struct SpecialFunction {
 lazy_static! {
     pub(super) static ref SPECIAL_FUNCTIONS: HashMap<String, SpecialFunction> = {
         let mut m = HashMap::new();
-        let functions_str = fs::read_to_string(SPECIAL_FUNCTIONS_PATH).expect("Failed to read special functions json file.");
-        let functions_json = json::parse(&functions_str).unwrap();
+        let functions_json = json::parse(SPECIAL_IDENTIFIERS_STR).unwrap();
         if let json::JsonValue::Array(function_arr) = &functions_json["special_functions"] {
             for function in function_arr {
                 let identifier = match &function["identifier"].as_str() {
@@ -50,8 +49,7 @@ lazy_static! {
 }
 
 fn read_type_constants(grouping: &str) ->  HashMap<String, Vec<String>> {
-    let game_types_str = fs::read_to_string(SPECIAL_FUNCTIONS_PATH).expect("Failed to read mips_identifiers.json");
-    let game_types = json::parse(&game_types_str).unwrap();
+    let game_types = json::parse(SPECIAL_IDENTIFIERS_STR).unwrap();
     let mut enums = HashMap::new();
 
     // TODO: This is a mess but kinda fine cause its only used once - if I need to json parse again I may write a template parser.
