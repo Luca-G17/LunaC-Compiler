@@ -386,7 +386,7 @@ fn init_keywords() -> HashMap<String, TokenType> {
     ])
 }
 
-pub fn scan_tokens(source: String) -> Vec<Token> {
+pub fn scan_tokens(source: String, verbose: bool) -> Vec<Token> {
     let mut scanner = Scanner {
         start: 0, 
         current: 0,
@@ -400,6 +400,8 @@ pub fn scan_tokens(source: String) -> Vec<Token> {
         scanner.scan_token();
     }
     scanner.tokens.push(Token {tok_type: TokenType::Eof, lexeme: String::from(""), literal: String::from(""), line_no: scanner.line_no});
-    scanner.print_tokens();
+    if verbose {
+        scanner.print_tokens();
+    }
     scanner.tokens
 }

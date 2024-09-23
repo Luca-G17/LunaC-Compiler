@@ -208,6 +208,13 @@ pub(super) struct Sle {
 }
 
 #[derive(Clone)]
+pub(super) struct Sne {
+    pub(super) store: VariableMapping,
+    pub(super) op_1: MipsOperand,
+    pub(super) op_2: MipsOperand
+}
+
+#[derive(Clone)]
 pub(super) struct Bne {
     pub(super) op_1: MipsOperand,
     pub(super) op_2: MipsOperand,
@@ -346,6 +353,7 @@ pub(super) enum MipsOperation {
     Beq(Beq),
     Bne(Bne),
     Seq(Seq),
+    Sne(Sne),
     Sgt(Sgt),
     Sge(Sge),
     Slt(Slt),
@@ -422,6 +430,7 @@ impl MipsOperation {
             MipsOperation::Xor(o) => Self::storing_op_to_string("xor", o.store, vec![o.op_1, o.op_2]),
             MipsOperation::Bne(o) => Self::non_storing_op_to_string("bne", vec![o.op_1, o.op_2, o.dest]),
             MipsOperation::Beq(o) => Self::non_storing_op_to_string("beq", vec![o.op_1, o.op_2, o.dest]),
+            MipsOperation::Sne(o) => Self::storing_op_to_string("sne", o.store, vec![o.op_1, o.op_2]),
             MipsOperation::Seq(o) => Self::storing_op_to_string("seq", o.store, vec![o.op_1, o.op_2]),
             MipsOperation::Sgt(o) => Self::storing_op_to_string("sgt", o.store, vec![o.op_1, o.op_2]),
             MipsOperation::Sge(o) => Self::storing_op_to_string("sge", o.store, vec![o.op_1, o.op_2]),
@@ -438,19 +447,31 @@ impl MipsOperation {
         SPECIAL_FUNCTIONS.contains_key(op_str)
     }
 
-    fn replace_arguments_with_strings(func_template: &SpecialFunction, operands: Vec<MipsOperand>, func_tok: &Token) -> Result<Vec<MipsOperand>, TranslatorError> {
+    fn replace_arguments_with_strings(func_template: &SpecialFunction, operands: Vec<MipsOperand>, func_tok: &Token, initials: Vec<Option<String>>) -> Result<Vec<MipsOperand>, TranslatorError> {
         // Replace mips_special_constants integers with the corresponding string
         let mut replaced_operands = vec![];
         for (i, operand) in operands.iter().enumerate() {
+            let arg_type = &func_template.args[i];
+            let is_mips_type = SpecialConstants::is_mips_type(arg_type); 
+            let is_item_type = SpecialConstants::is_item_type(arg_type);
+            
+            let mut operand = operand.clone();
 
-            if let MipsOperand::Literal(lit) = operand {
+            if let MipsOperand::VariableMapping(_) = operand.clone() {
+                if is_mips_type || is_item_type {
+                    if let Some(init) = &initials[i] {
+                        operand = MipsOperand::from_string_literal(init.to_string());
+                    }
+                }
+            }
+
+            if let MipsOperand::Literal(lit) = &operand {
                 // If argument is special constant - check the constant exists in its given type and convert to pascal case
                 // with the exception of "device_id_t" which should be converted to its index and char* which should remain untouched
                 // If the literal is numeric then lookup its corresponding constant value 
 
-                let arg_type = &func_template.args[i];
                 let mut lit = lit.clone();
-                if (SpecialConstants::is_item_type(arg_type) || SpecialConstants::is_mips_type(arg_type)) && lit.chars().all(|c| c.is_ascii_digit()) {
+                if (is_item_type || is_mips_type) && lit.chars().all(|c| c.is_ascii_digit()) {
                     match SpecialConstants::constant_at_index(lit.parse().unwrap(), arg_type) {
                         Some(str) => lit = str,
                         None => { 
@@ -469,7 +490,7 @@ impl MipsOperation {
                         },
                     }
                 }
-                else if SpecialConstants::is_mips_type(arg_type) {
+                else if is_mips_type {
                     match SpecialConstants::replacement_string(&lit, arg_type) {
                         Some(str) => replaced_operands.push(MipsOperand::from_string_literal(str)),
                         None => {
@@ -478,7 +499,7 @@ impl MipsOperation {
                         },
                     }
                 }
-                else if SpecialConstants::is_item_type(arg_type) {
+                else if is_item_type {
                     match SpecialConstants::hash_replacement(&lit, arg_type) {
                         Some(hash) => replaced_operands.push(MipsOperand::from_string_literal(format!("{}", hash))),
                         None => {
@@ -500,10 +521,10 @@ impl MipsOperation {
 
     // Returns the corresponding mips operation + it's number of required arguments
     // If the function is attempting to store into a pointer - store the value in the base_ptr+1, preventing us from overwriting the address stored in base_ptr
-    pub(super) fn direct_replaced_operation(op_tok: &Token, base_ptr: usize, operands: Vec<MipsOperand>, store_type: VarType) -> Result<Option<(MipsOperation, usize, bool)>, TranslatorError>{
+    pub(super) fn direct_replaced_operation(op_tok: &Token, base_ptr: usize, operands: Vec<MipsOperand>, store_type: VarType, initials: Vec<Option<String>>) -> Result<Option<(MipsOperation, usize, bool)>, TranslatorError>{
         let op_str = &op_tok.lexeme;
         if let Some(func_template) = SPECIAL_FUNCTIONS.get(op_str) {
-            let mut operands = MipsOperation::replace_arguments_with_strings(func_template, operands, op_tok)?;
+            let mut operands = MipsOperation::replace_arguments_with_strings(func_template, operands, op_tok, initials)?;
             let op = { 
                 if func_template.storing {
                     let mut store_ptr = base_ptr;

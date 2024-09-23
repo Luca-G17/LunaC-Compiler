@@ -355,7 +355,7 @@ pub fn ast_pretty_printer(expr: Expr) -> String {
     parenthesize_expr(expr)
 }
 
-pub fn parse(tokens: &[Token]) -> Vec<Stmt> {
+pub fn parse(tokens: &[Token], verbose: bool) -> Vec<Stmt> {
     let mut statements: Vec<Stmt> = vec![];
     let mut current = 0;
 
@@ -373,7 +373,10 @@ pub fn parse(tokens: &[Token]) -> Vec<Stmt> {
         }
     }
 
-    print_stage(parsed_str, String::from("PARSED CODE:"));
+    if verbose {
+        print_stage(parsed_str, String::from("PARSED CODE:"));
+    }
+    
     statements
 }
 

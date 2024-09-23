@@ -126,6 +126,11 @@ Where x may be an lvalue
 ptr + 1 => ptr + sizeof(element pointed to) * 1
 *ptr = ptr = address of first element in array
 
+#### Compile Time Evaluation
+##### Variable Elimination
+- If a variable is never written to after init all instances can be replaced with its literal value
+  - This is impossible to verify at compile time because of pointer access
+
 ## Optimisers
 - [ ] Conditional branch reduction - The translation of logical statements utilises 's**' operations (e.g. sgt) meaning a the result is stored in a specified register, in the case of conditional statements this operation is always followed by a 'beq' or 'bne' operation these can be reduced to just 'bgt'
 ## Long Term

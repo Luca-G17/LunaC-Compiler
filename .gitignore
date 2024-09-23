@@ -1,3 +1,4 @@
 /target
+/c_programs
 .vscode
 test.c

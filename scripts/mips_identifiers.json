@@ -114,8 +114,8 @@
         { "identifier": "m_log", "args": [["float", ""]], "ret": "float", "implement": true, "mips_name": "log", "storing": true },
         { "identifier": "m_sqrt", "args": [["float", ""]], "ret": "float", "implement": true, "mips_name": "sqrt", "storing": true },
         { "identifier": "m_rand", "args": [["float", ""]], "ret": "float", "implement": true, "mips_name": "rand", "storing": true },
-        { "identifier": "m_sleep", "args": [["float", ""]], "ret": "void", "implement": true, "mips_name": "sleep", "storing": true },
-        { "identifier": "m_yeild", "args": [], "ret": "void", "implement": true, "mips_name": "yeild", "storing": true }
+        { "identifier": "m_sleep", "args": [["float", ""]], "ret": "void", "implement": true, "mips_name": "sleep", "storing": false },
+        { "identifier": "m_yeild", "args": [], "ret": "void", "implement": true, "mips_name": "yeild", "storing": false }
 
     ],
     "type_catagories": [
@@ -182,6 +182,10 @@
                 "SOLAR_ANGLE",
                 "TEMPERATURE",
                 "TEMPERATURE_SETTINGS",
+                "THROTTLE",
+                "RPM",
+                "STRESS",
+                "COMBUSTION_LIMITER",
                 "TOTAL_MOLES",
                 "VELOCITY_MAGNITUDE",
                 "VELOCITY_RELATIVE_X",

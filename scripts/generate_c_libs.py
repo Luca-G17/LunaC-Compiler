@@ -60,6 +60,6 @@ def write_mips_functions(idens):
             functions_file.write(f"{ret_type} {func_name}({arg_str}){end_str}\n")
 
 idens = load_game_identifiers()
-# write_types_header(idens)
 write_mips_functions(idens)
-# write_types_header(idens, ITEMS_FILE, "item_types")
+write_types_header(idens, ITEMS_FILE, "item_types")
+write_types_header(idens, HEADER_FILE, "type_catagories")

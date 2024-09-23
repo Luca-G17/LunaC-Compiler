@@ -112,6 +112,12 @@ fn process_operation(op: &MipsOperation, label_mapping: &HashMap<String, usize>,
             let result = if left == right { 1.0 } else { 0.0 };
             mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(result));
         },
+        MipsOperation::Sne(o) => {
+            let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
+            let right: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
+            let result = if left != right { 1.0 } else { 0.0 };
+            mem_set(registers, sp, ra, &o.store, &MipsOperand::from_number_literal(result));
+        }
         MipsOperation::Sgt(o) => {
             let left: i32 = operand_read(registers, sp, ra, &o.op_1) as i32;
             let right: i32 = operand_read(registers, sp, ra, &o.op_2) as i32;
