@@ -852,7 +852,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
                 let branch_block_env = Env::new(
                     HashMap::new(),
                     env.borrow().functions.clone(),
-                    0,
+                    env.borrow().frame_ptr,
                     env.borrow().var_count,
                     Some(Rc::clone(&env)),
                 );
@@ -986,7 +986,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
             let body_env = Env::new(
                 HashMap::new(),
                 env.borrow().functions.clone(),
-                0,
+                env.borrow().frame_ptr,
                 env.borrow().var_count,
                 Some(Rc::clone(&env)),
             );
