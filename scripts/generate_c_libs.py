@@ -1,9 +1,9 @@
 import json
 
 IDENTIFIERS_FILE="scripts/mips_identifiers.json"
-HEADER_FILE="c_libs/mips_types.h"
-FUNCTIONS_FILE="c_libs/mips.h"
-ITEMS_FILE="c_libs/mips_items.h"
+TYPES_HEADER_FILE="c_libs/mips_types.h"
+FUNCTIONS_HEADER_FILE="c_libs/mips.h"
+ITEMS_HEADER_FILE="c_libs/mips_items.h"
 
 ARG_TYPE_TO_STR={
     "device_id_t": "device",
@@ -39,8 +39,8 @@ def get_arg_name(arg):
     return ARG_TYPE_TO_STR[arg[0]] 
 
 
-def write_mips_functions(idens):
-    with open(FUNCTIONS_FILE, "w") as functions_file:
+def write_mips_functions(idens, header_file_path):
+    with open(header_file_path, "w") as functions_file:
         functions_file.write("#include \"mips_types.h\"\n")
         functions_file.write("#include \"mips_items.h\"\n")
         functions_file.write("\n")
@@ -60,6 +60,6 @@ def write_mips_functions(idens):
             functions_file.write(f"{ret_type} {func_name}({arg_str}){end_str}\n")
 
 idens = load_game_identifiers()
-write_mips_functions(idens)
-write_types_header(idens, ITEMS_FILE, "item_types")
-write_types_header(idens, HEADER_FILE, "type_catagories")
+write_mips_functions(idens, FUNCTIONS_HEADER_FILE)
+write_types_header(idens, ITEMS_HEADER_FILE, "item_types")
+write_types_header(idens, TYPES_HEADER_FILE, "type_catagories")
