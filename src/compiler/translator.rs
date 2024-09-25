@@ -750,7 +750,7 @@ fn translate_function_call<'a>(func_call: &FuncCallStmt<'a>, env: Rc<RefCell<Env
     ops.push(MipsOperation::Add(Add {
         store: VariableMapping::from_register_number(STACK_BASE_REGISTER, VarType::Int),
         op_1: MipsOperand::from_register_number(STACK_BASE_REGISTER, VarType::Int),
-        op_2: MipsOperand::from_string_literal(format!("b{}", frame_size + 1))
+        op_2: MipsOperand::from_string_literal(format!("-{}", frame_size + 1))
     }));
     Ok((ops, ret_type))
 }
