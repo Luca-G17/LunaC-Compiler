@@ -313,7 +313,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
                 ops.push(MipsOperation::Beq(Beq { 
                     op_1: MipsOperand::from_register_number(var_ptr, VarType::Int), 
                     op_2: MipsOperand::from_string_literal(String::from("1")), 
-                    dest: MipsOperand::from_string_literal(format!("%{}", dest_label - 1))
+                    dest: MipsOperand::from_string_literal(format!("b{}", dest_label - 1))
                 }));
             }
 
@@ -362,7 +362,7 @@ fn translate_ast<'a>(ast: &Expr<'a>, env: Rc<RefCell<Env<'a>>>, var_ptr: usize, 
             ops.extend(op_ops);
             
             if e.operator.tok_type == TokenType::Or {
-                ops.push(MipsOperation::Label(Label { label_name: format!("%{}", dest_label - 1) }));
+                ops.push(MipsOperation::Label(Label { label_name: format!("b{}", dest_label - 1) }));
             }
             Ok((ops, var_ptr, array_deref_depth, store_type, None, array_ptr_opt))
         },
@@ -828,12 +828,12 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
             let mut current_label_ptr = env.borrow().get_label_ptr();
             let num_conditions = conditional.conditions.len();
             let final_label_ptr = current_label_ptr + num_conditions - 1;
-            let final_label_str = format!("%{}", final_label_ptr);
+            let final_label_str = format!("b{}", final_label_ptr);
 
 
             for (i, (condition, branch)) in (conditional.conditions.iter().zip(conditional.branches.iter())).enumerate() {
                 if i != 0 {
-                    ops.push(MipsOperation::Label(Label { label_name: format!("%{}", current_label_ptr) }))
+                    ops.push(MipsOperation::Label(Label { label_name: format!("b{}", current_label_ptr) }))
                 }
                 match translate_ast(condition, env.clone(), reg_ptr, 0, 0, true, None) {
                     Ok((condition_ops, _, _, _, _, _)) => ops.extend(condition_ops),
@@ -842,7 +842,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
                 
                 // Branch if condition is not true 
                 current_label_ptr = env.borrow_mut().add_label();
-                let branch_label = format!("%{}", current_label_ptr);
+                let branch_label = format!("b{}", current_label_ptr);
                 ops.push(MipsOperation::Bne(Bne { 
                     op_1: MipsOperand::from_register_number(reg_ptr, VarType::Int),
                     op_2: MipsOperand::from_string_literal(String::from("1")),
@@ -852,7 +852,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
                 let branch_block_env = Env::new(
                     HashMap::new(),
                     env.borrow().functions.clone(),
-                    0,
+                    env.borrow().frame_ptr,
                     env.borrow().var_count,
                     Some(Rc::clone(&env)),
                 );
@@ -864,7 +864,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
                     ops.push(MipsOperation::Jump(Jump { label_name: final_label_str.clone() }))
                 }
             }
-            ops.push(MipsOperation::Label(Label { label_name: format!("%{}", current_label_ptr)}));
+            ops.push(MipsOperation::Label(Label { label_name: format!("b{}", current_label_ptr)}));
             (ops, errored)
         },
         Stmt::Return(ret) => {
@@ -943,20 +943,20 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
             let body_env = Env::new(
                 HashMap::new(),
                 env.borrow().functions.clone(),
-                0,
+                env.borrow().frame_ptr,
                 env.borrow().var_count,
                 Some(Rc::clone(&env)),
             );
             let mut ops = Vec::new();
             let mut errored = false;
 
-            let body_label = format!("%{}", env.borrow_mut().add_label());
+            let body_label = format!("b{}", env.borrow_mut().add_label());
             ops.push(MipsOperation::Label(Label { label_name: body_label.clone() }));
             let (body_ops, error_state) = translate(&wh.body, body_env);
             ops.extend(body_ops);
             errored |= error_state;
 
-            let condition_label = format!("%{}", env.borrow_mut().add_label());
+            let condition_label = format!("b{}", env.borrow_mut().add_label());
             ops.push(MipsOperation::Label(Label { label_name: condition_label}));
 
             let reg_ptr = env.borrow().get_reg_ptr();
@@ -986,12 +986,12 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
             let body_env = Env::new(
                 HashMap::new(),
                 env.borrow().functions.clone(),
-                0,
+                env.borrow().frame_ptr,
                 env.borrow().var_count,
                 Some(Rc::clone(&env)),
             );
 
-            let body_label = format!("%{}", env.borrow_mut().add_label());
+            let body_label = format!("b{}", env.borrow_mut().add_label());
             ops.push(MipsOperation::Label(Label { label_name: body_label.clone() }));
             let (body_ops, error_state) = translate(&for_stmt.body, body_env);
             ops.extend(body_ops);
@@ -1003,7 +1003,7 @@ fn translate<'a>(stmt: &'a Stmt<'a>, env: Rc<RefCell<Env<'a>>>) -> (Vec<MipsOper
                 errored |= error_state;
             }
 
-            let condition_label = format!("%{}", env.borrow_mut().add_label());
+            let condition_label = format!("b{}", env.borrow_mut().add_label());
             ops.push(MipsOperation::Label(Label {label_name: condition_label}));
             let reg_ptr = env.borrow().get_reg_ptr();
             match translate_ast(&for_stmt.condition, env.clone(), reg_ptr, 0, 0, true, None) {
