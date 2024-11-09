@@ -2,6 +2,8 @@
 
 This project provides a compiler capable of translating a subset of [c89](https://en.wikipedia.org/wiki/ANSI_C) to [Stationeers IC10](https://stationeers-wiki.com/IC10) assembly code (please note that this is still WIP and is certain to have bugs)
 
+![Example Compilation](./images/example.png)
+
 ## Usage
 1. Download the relavent binary for your operating system (c_to_mips for Linux, c_to_mips.exe for Windows).
 2. Make the file an executable (linux): `chmod +x ./lunaC`
@@ -82,4 +84,5 @@ void m_yeild();
 - `if`
 - `else`
 - `float`
+
 
