@@ -2,3 +2,4 @@
 /c_programs
 .vscode
 test.c
+.clangd
