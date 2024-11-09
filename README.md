@@ -54,4 +54,32 @@ void m_sleep(float __x);
 void m_yeild();
 ```
 
-## Unsupported Features
+## Keyword/Operator Support
+
+### Supported Operators
+| Operator | Description |
+|-----|-----|
+| `()` | Function call |
+| `[]` | Array subscripting |
+| `-` | Unary minus |
+| `! ~` | Logical NOT and bitwise NOT |
+| `(type)` | Type cast |
+| `*` | Dereference |
+| `&` | Address of |
+| `* / %` | Multiplication, division and remainder |
+| `+` `-` | Addition and subtraction |
+| `<<` `>>`| Bitwise left and right shift |
+| `<` `<=` `>` `>=` `==` `!=` | Relation operators |
+| `&` `^` `\|` | Bitwise AND, XOR and OR |
+| `&&` `\|\|` | Logical AND and OR |
+| `=` `+=` `-=` `*=` `/=` `%=` `&=` `&=` `^=` `!=` | Assignment operators |
+### Supported Keywords
+- `while`
+- `int`
+- `for`
+- `return`
+- `void`
+- `if`
+- `else`
+- `float`
+
