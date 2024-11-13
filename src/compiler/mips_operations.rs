@@ -77,6 +77,13 @@ impl VariableMapping {
 }
 
 // TODO: This has become quite messy im tempted to move the operation variance into a variable and collapse the variants into a single struct.
+
+// MIPS Operations archetypes
+// store, op_1, op_2
+// store, op_1
+// op_1
+// 
+
 #[derive(Clone)]
 pub(super) struct Move {
     pub(super) store: VariableMapping,

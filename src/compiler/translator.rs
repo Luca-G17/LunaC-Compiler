@@ -225,7 +225,7 @@ fn mips_binary_operation(operator: &Token, var_ptr: usize, op_1: MipsOperand, op
         TokenType::GreaterEqual => MipsOperation::Sge(Sge { store, op_1, op_2 }),
         TokenType::Less => MipsOperation::Slt(Slt { store, op_1, op_2 }),
         TokenType::LessEqual => MipsOperation::Sle(Sle { store, op_1, op_2 }),
-        _ => { 
+        _ => {
             println!("{}", Token::to_string(operator));
             panic!("Internal compiler error - not a binary operation");
         }

@@ -709,6 +709,13 @@ fn parse_tokens_and_generate_stmt<'a>(current: usize, tokens: &'a [Token], depth
 // Depth argument prevents nested functions
 fn function_declaration<'a>(current: usize, tokens: &'a [Token], depth: usize, func_name: &'a Token, ret_type: &'a Token) -> Result<(Stmt<'a>, usize), ParserError> {
     let mut current = current;
+    
+    // Validate function name is of the format 'b{int}'
+    let mut func_name_chars = func_name.lexeme.chars();
+    if func_name_chars.next().unwrap() == 'b' && (func_name.lexeme[1..func_name.lexeme.len()].chars().all(|c: char| c.is_ascii_digit())) {
+        parsing_error(func_name, String::from("Function name cannot match b[0-9]+ due to the compiler labelling implementation."));
+        return Err(ParserError);
+    }
 
     if depth > 1 {
         parsing_error(peek(current, tokens), String::from("Nested functions are not allowed."));
